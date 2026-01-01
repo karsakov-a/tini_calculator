@@ -25,6 +25,7 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QPushButton,
     QRadioButton,
+    QCheckBox,
     QVBoxLayout,
     QWidget,
 )
@@ -190,19 +191,27 @@ class IVCCalculatorApp(QMainWindow):
         gender_layout.addWidget(self.female_radio)
         patient_layout.addLayout(gender_layout)
 
-        # --- Дата рождения ---
+        # --- Дата рождения с опцией "неизвестна" ---
         dob_layout = QHBoxLayout()
         dob_label = QLabel("Дата рождения")
+        self.dob_unknown_checkbox = QCheckBox("Неизвестно")
+        self.dob_unknown_checkbox.setChecked(True)  # по умолчанию включено
         self.dob_edit = QDateEdit()
         self.dob_edit.setCalendarPopup(True)
         self.dob_edit.setDisplayFormat("dd.MM.yyyy")
         self.dob_edit.setDateRange(MIN_ALLOWED_DATE, MAX_ALLOWED_DATE)
         self.dob_edit.setDate(MIN_ALLOWED_DATE)
+        self.dob_edit.setEnabled(False)  # заблокировано по умолчанию
+        self.dob_unknown_checkbox.toggled.connect(self.toggle_dob_input)
         self.dob_edit.dateChanged.connect(self.on_input_changed)
         dob_layout.addWidget(dob_label, 1)
+        dob_layout.addWidget(self.dob_unknown_checkbox)
         dob_layout.addWidget(self.dob_edit, 2)
         patient_layout.addLayout(dob_layout)
         self.fields["date_birth"] = self.dob_edit
+        self.fields["dob_unknown"] = (
+            self.dob_unknown_checkbox
+        )  # <-- новая ссылка
 
         # --- Возраст на момент исследования (только для отображения) ---
         age_layout = QHBoxLayout()
@@ -222,19 +231,31 @@ class IVCCalculatorApp(QMainWindow):
         study_group.setAlignment(Qt.AlignCenter)
         study_layout = QVBoxLayout()
 
-        # --- Дата исследования ---
+        # --- Дата исследования с опцией "неизвестна" ---
         study_date_layout = QHBoxLayout()
         study_date_label = QLabel("Дата исследования")
+        self.study_date_unknown_checkbox = QCheckBox("Неизвестно")
+        self.study_date_unknown_checkbox.setChecked(
+            True
+        )  # по умолчанию включено
         self.study_date_edit = QDateEdit()
         self.study_date_edit.setCalendarPopup(True)
         self.study_date_edit.setDisplayFormat("dd.MM.yyyy")
         self.study_date_edit.setDateRange(MIN_ALLOWED_DATE, MAX_ALLOWED_DATE)
         self.study_date_edit.setDate(MIN_ALLOWED_DATE)
+        self.study_date_edit.setEnabled(False)  # заблокировано по умолчанию
+        self.study_date_unknown_checkbox.toggled.connect(
+            self.toggle_study_date_input
+        )
         self.study_date_edit.dateChanged.connect(self.on_input_changed)
         study_date_layout.addWidget(study_date_label, 1)
+        study_date_layout.addWidget(self.study_date_unknown_checkbox)
         study_date_layout.addWidget(self.study_date_edit, 2)
         study_layout.addLayout(study_date_layout)
         self.fields["study_date"] = self.study_date_edit
+        self.fields["study_date_unknown"] = (
+            self.study_date_unknown_checkbox
+        )  # <-- новая ссылка
 
         # --- Лабораторные параметры ---
         lab_inputs = [
@@ -321,6 +342,16 @@ class IVCCalculatorApp(QMainWindow):
         except ValueError:
             return default
 
+    def toggle_dob_input(self, checked: bool):
+        """Блокирует/разблокирует поле даты рождения."""
+        self.dob_edit.setEnabled(not checked)
+        self.on_input_changed()
+
+    def toggle_study_date_input(self, checked: bool):
+        """Блокирует/разблокирует поле даты исследования."""
+        self.study_date_edit.setEnabled(not checked)
+        self.on_input_changed()
+
     def on_input_changed(self):
         """
         Основной метод пересчёта.
@@ -369,20 +400,56 @@ class IVCCalculatorApp(QMainWindow):
         self.risk_label.setStyleSheet(f"color: {color};")
         self.risk_label.setWordWrap(True)
 
+        # --- Обработка дат ---
+        dob_unknown = self.fields["dob_unknown"].isChecked()
+        study_date_unknown = self.fields["study_date_unknown"].isChecked()
+
+        birth_date = None
+        study_date = None
+
+        if dob_unknown or study_date_unknown:
+            self.age_display.setText("—")
+            age = None  # возраст не определён
+        else:
+            birth_date = self.dob_edit.date()
+            study_date = self.study_date_edit.date()
+            age = self.calculate_age(birth_date, study_date)
+            self.age_display.setText(str(age))
+
         # --- Формирование полного отчёта ---
         surname = self.fields["surname"].text().strip()
         name = self.fields["name"].text().strip()
         patronymic = self.fields["patronymic"].text().strip()
         full_name = f"{surname} {name} {patronymic}".strip()
-        gender = "Мужской" if self.male_radio.isChecked() else "Женский"
-        dob_str = birth_date.toString("dd.MM.yyyy")
-        study_date_str = study_date.toString("dd.MM.yyyy")
+
+        # Пол
+        if self.not_specified_radio.isChecked():
+            gender = "Не указано"
+        elif self.male_radio.isChecked():
+            gender = "Мужской"
+        else:
+            gender = "Женский"
+
+        # Дата рождения
+        if dob_unknown:
+            dob_str = "Неизвестно"
+        else:
+            dob_str = birth_date.toString("dd.MM.yyyy")
+
+        # Дата исследования
+        if study_date_unknown:
+            study_date_str = "Неизвестно"
+        else:
+            study_date_str = study_date.toString("dd.MM.yyyy")
+
+        # Возраст
+        age_str = str(age) + " лет" if age is not None else "—"
 
         self.full_report = (
             f"Пациент: {full_name.title()}\n"
             f"Пол: {gender}\n"
             f"Дата рождения: {dob_str}\n"
-            f"Возраст на момент исследования: {age} лет\n"
+            f"Возраст на момент исследования: {age_str}\n"
             f"Дата исследования: {study_date_str}\n"
             f"\n"
             f"IVC-индекс: {ivc:,.0f}\n"
