@@ -57,7 +57,7 @@ FONT_SIZE_RESULT_MESSAGE = 12
 
 # Валидация данных в полях ввода
 MIN_NAME_SURNAME_PATRONYMIC_LENGTH = 2
-MAX_NAME_SURNAME_PATRONYMIC_LENGTH = 50
+MAX_NAME_SURNAME_PATRONYMIC_LENGTH = 20
 MIN_DDIMER_INTERLEUKINS = 0.0
 MAX_DDIMER_INTERLEUKINS = 5000.0
 MIN_LYMPHOCYTES = 0.0
@@ -159,8 +159,15 @@ class IVCCalculatorApp(QMainWindow):
             label = QLabel(label_text)
             line_edit = QLineEdit()
             line_edit.setMaxLength(MAX_NAME_SURNAME_PATRONYMIC_LENGTH)
-            line_edit.setPlaceholderText("Только буквы, 2–50 символов")
-            name_regex = QRegularExpression(r"^[а-яА-ЯёЁa-zA-Z]{2,50}$")
+            line_edit.setPlaceholderText(
+                f"Только буквы, {MIN_NAME_SURNAME_PATRONYMIC_LENGTH}–"
+                f"{MAX_NAME_SURNAME_PATRONYMIC_LENGTH} символов"
+            )
+            pattern = (
+                f"^[а-яА-ЯёЁa-zA-Z]{{{MIN_NAME_SURNAME_PATRONYMIC_LENGTH},"
+                f"{MAX_NAME_SURNAME_PATRONYMIC_LENGTH}}}$"
+            )
+            name_regex = QRegularExpression(pattern)
             line_edit.setValidator(QRegularExpressionValidator(name_regex))
             line_edit.textChanged.connect(self.on_input_changed)
             row.addWidget(label, 1)
@@ -301,32 +308,58 @@ class IVCCalculatorApp(QMainWindow):
         result_group.setAlignment(Qt.AlignCenter)
         result_layout = QVBoxLayout()
 
+        # Надпись-заглушка (всегда видна)
+        self.instruction_label = QLabel("Введите все обязательные поля (*)")
+        self.instruction_label.setFont(QFont(FONT, FONT_SIZE_RESULT_MESSAGE))
+        self.instruction_label.setAlignment(Qt.AlignCenter)
+        self.instruction_label.setWordWrap(True)
+        result_layout.addWidget(self.instruction_label)
+
+        # Метка для IVC-значения (изначально скрыта)
         self.result_value = QLabel("")
         self.result_value.setFont(QFont(FONT, FONT_SIZE_RESULT_IVC))
         self.result_value.setAlignment(Qt.AlignCenter)
         self.result_value.setWordWrap(True)
+        self.result_value.hide()
         result_layout.addWidget(self.result_value)
 
+        # Метка для интерпретации риска (изначально скрыта)
         self.risk_label = QLabel("")
         self.risk_label.setFont(QFont(FONT, FONT_SIZE_RESULT_MESSAGE))
         self.risk_label.setAlignment(Qt.AlignCenter)
         self.risk_label.setWordWrap(True)
+        self.risk_label.hide()
         result_layout.addWidget(self.risk_label)
-
-        button_layout = QHBoxLayout()
-        self.copy_btn = QPushButton("Скопировать отчёт")
-        self.pdf_btn = QPushButton("Сохранить в PDF")
-        self.copy_btn.clicked.connect(self.copy_to_clipboard)
-        self.pdf_btn.clicked.connect(self.save_to_pdf)
-        button_layout.addWidget(self.copy_btn)
-        button_layout.addWidget(self.pdf_btn)
-        result_layout.addLayout(button_layout)
 
         result_group.setLayout(result_layout)
         layout.addWidget(result_group)
 
-        # Вызываем расчёт сразу при запуске
-        self.on_input_changed()
+        # === Кнопки в два ряда ===
+        # Ряд 1: Выполнить и Сбросить
+        row1_layout = QHBoxLayout()
+        self.calculate_btn = QPushButton("ВЫПОЛНИТЬ РАСЧЁТ")
+        self.reset_btn = QPushButton("Сбросить")
+        self.calculate_btn.clicked.connect(self.on_calculate)
+        self.reset_btn.clicked.connect(self.reset_form)
+        self.calculate_btn.setEnabled(False)
+        self.reset_btn.setEnabled(False)
+        row1_layout.addWidget(self.calculate_btn)
+        row1_layout.addWidget(self.reset_btn)
+
+        # Ряд 2: Скопировать и Сохранить
+        row2_layout = QHBoxLayout()
+        self.copy_btn = QPushButton("Скопировать отчёт")
+        self.pdf_btn = QPushButton("Сохранить в PDF")
+        self.copy_btn.clicked.connect(self.copy_to_clipboard)
+        self.pdf_btn.clicked.connect(self.save_to_pdf)
+        self.copy_btn.setEnabled(False)
+        self.pdf_btn.setEnabled(False)
+        row2_layout.addWidget(self.copy_btn)
+        row2_layout.addWidget(self.pdf_btn)
+
+        # Добавляем оба ряда в макет результата
+        result_layout.addLayout(row1_layout)
+        result_layout.addLayout(row2_layout)
 
     def get_float(self, key: str, default: float = 0.0) -> float:
         """
@@ -353,111 +386,32 @@ class IVCCalculatorApp(QMainWindow):
         self.on_input_changed()
 
     def on_input_changed(self):
-        """
-        Основной метод пересчёта.
-        Вызывается при любом изменении любого поля ввода.
-        """
-        birth_date = self.dob_edit.date()
-        study_date = self.study_date_edit.date()
-        age = self.calculate_age(birth_date, study_date)
-        self.age_display.setText(str(age))
+        """Обновляет возраст и надпись о заполнении обязательных полей."""
+        # Обновляем возраст
+        dob_unknown = self.fields["dob_unknown"].isChecked()
+        study_date_unknown = self.fields["study_date_unknown"].isChecked()
+        if not dob_unknown and not study_date_unknown:
+            age = self.calculate_age(
+                self.dob_edit.date(), self.study_date_edit.date()
+            )
+            self.age_display.setText(str(age))
+        else:
+            self.age_display.setText("—")
 
-        # --- Валидация ФИО ---
-        for key in ("surname", "name", "patronymic"):
-            text = self.fields[key].text().strip()
-            if text and not self.fields[key].hasAcceptableInput():
-                self.result_value.setText("ФИО: только буквы, 2–50 символов")
-                self.risk_label.setText("")
-                return
-
-        # --- Получение лабораторных данных ---
+        # Проверяем обязательные поля
         d_dimer = self.get_float("d_dimer")
         interleukins = self.get_float("interleukins")
         lymphocytes = self.get_float("lymphocytes")
+        all_filled = d_dimer > 0 and interleukins > 0 and lymphocytes > 0
 
-        # --- Проверка обязательных полей ---
-        if d_dimer == 0 or interleukins == 0 or lymphocytes == 0:
-            self.result_value.setText("Введите все обязательные параметры (*)")
-            self.risk_label.setText("")
-            return
-
-        # --- Расчёт IVC ---
-        ivc = calculate_ivc(d_dimer, interleukins, lymphocytes)
-        risk_level, color = interpret_ivc(ivc)
-
-        # --- Дополнительное предупреждение по КТ ---
-        extra_warning = ""
-        ct = self.get_float("ct_percent")
-        if ct > 70 and ivc > 500_000:
-            extra_warning = EXTRA_WARNING_CT_IVC
-
-        # --- Обновление интерфейса ---
-        self.result_value.setText(f"{ivc:,.0f}")
-        self.result_value.setStyleSheet(f"color: {color}; font-weight: bold;")
-
-        risk_text = risk_level
-        self.risk_label.setText(risk_text + extra_warning)
-        self.risk_label.setStyleSheet(f"color: {color};")
-        self.risk_label.setWordWrap(True)
-
-        # --- Обработка дат ---
-        dob_unknown = self.fields["dob_unknown"].isChecked()
-        study_date_unknown = self.fields["study_date_unknown"].isChecked()
-
-        birth_date = None
-        study_date = None
-
-        if dob_unknown or study_date_unknown:
-            self.age_display.setText("—")
-            age = None  # возраст не определён
+        # Управление надписью
+        if all_filled:
+            self.instruction_label.hide()
         else:
-            birth_date = self.dob_edit.date()
-            study_date = self.study_date_edit.date()
-            age = self.calculate_age(birth_date, study_date)
-            self.age_display.setText(str(age))
+            self.instruction_label.show()
 
-        # --- Формирование полного отчёта ---
-        surname = self.fields["surname"].text().strip()
-        name = self.fields["name"].text().strip()
-        patronymic = self.fields["patronymic"].text().strip()
-        full_name = f"{surname} {name} {patronymic}".strip()
-
-        # Пол
-        if self.not_specified_radio.isChecked():
-            gender = "Не указано"
-        elif self.male_radio.isChecked():
-            gender = "Мужской"
-        else:
-            gender = "Женский"
-
-        # Дата рождения
-        if dob_unknown:
-            dob_str = "Неизвестно"
-        else:
-            dob_str = birth_date.toString("dd.MM.yyyy")
-
-        # Дата исследования
-        if study_date_unknown:
-            study_date_str = "Неизвестно"
-        else:
-            study_date_str = study_date.toString("dd.MM.yyyy")
-
-        # Возраст
-        age_str = str(age) + " лет" if age is not None else "—"
-
-        self.full_report = (
-            f"Пациент: {full_name.title()}\n"
-            f"Пол: {gender}\n"
-            f"Дата рождения: {dob_str}\n"
-            f"Возраст на момент исследования: {age_str}\n"
-            f"Дата исследования: {study_date_str}\n"
-            f"\n"
-            f"IVC-индекс: {ivc:,.0f}\n"
-            f"Интерпретация: {risk_text}{extra_warning}\n"
-            f"{D_DIMER_DESCRIPTION[0]}: {d_dimer} нг/мл\n"
-            f"{INTERLEUKINS_DESCRIPTION[0]}: {interleukins} пг/мл\n"
-            f"{LYMPHOCYTES_DESCRIPTION[0]}: {lymphocytes} ×10⁹/л"
-        )
+        # Активность кнопок
+        self.calculate_btn.setEnabled(all_filled)
 
     def calculate_age(self, birth_date: QDate, study_date: QDate) -> int:
         """
@@ -474,6 +428,165 @@ class IVCCalculatorApp(QMainWindow):
         ):
             years -= 1
         return max(0, years)
+
+    def on_calculate(self):
+        """Выполняет расчёт и показывает результат."""
+        # Проверка данных
+        d_dimer = self.get_float("d_dimer")
+        interleukins = self.get_float("interleukins")
+        lymphocytes = self.get_float("lymphocytes")
+
+        if d_dimer <= 0 or interleukins <= 0 or lymphocytes <= 0:
+            return  # Кнопка не должна быть активна, но на всякий случай
+
+        # Валидация дат
+        dob_unknown = self.fields["dob_unknown"].isChecked()
+        study_date_unknown = self.fields["study_date_unknown"].isChecked()
+
+        if not dob_unknown and not study_date_unknown:
+            birth_date = self.dob_edit.date()
+            study_date = self.study_date_edit.date()
+
+            if not birth_date.isValid() or not study_date.isValid():
+                self.show_error("Некорректные даты")
+                return
+
+            if birth_date > study_date:
+                self.show_error(
+                    "Дата рождения не может быть позже даты исследования"
+                )
+                return
+
+            if study_date > QDate.currentDate():
+                self.show_error("Дата исследования не может быть в будущем")
+                return
+
+        # Расчёт
+        ivc = calculate_ivc(d_dimer, interleukins, lymphocytes)
+        risk_level, color = interpret_ivc(ivc)
+
+        # Доп. предупреждение
+        extra_warning = ""
+        ct = self.get_float("ct_percent")
+        if ct > 70 and ivc > 500_000:
+            extra_warning = EXTRA_WARNING_CT_IVC
+
+        # Обновление интерфейса
+        self.result_value.setText(f"{ivc:,.0f}")
+        self.result_value.setStyleSheet(f"color: {color}; font-weight: bold;")
+        self.risk_label.setText(risk_level + extra_warning)
+        self.risk_label.setStyleSheet(f"color: {color};")
+
+        # Показываем результат
+        self.result_value.show()
+        self.risk_label.show()
+
+        # Активируем кнопки экспорта
+        self.copy_btn.setEnabled(True)
+        self.pdf_btn.setEnabled(True)
+
+        # Активируем ВСЕ кнопки после успешного расчёта
+        self.calculate_btn.setEnabled(
+            True
+        )  # можно пересчитать при изменении данных
+        self.reset_btn.setEnabled(True)
+        self.copy_btn.setEnabled(True)
+        self.pdf_btn.setEnabled(True)
+
+        # === Формирование отчёта ===
+        surname = self.fields["surname"].text().strip()
+        name = self.fields["name"].text().strip()
+        patronymic = self.fields["patronymic"].text().strip()
+        full_name = f"{surname} {name} {patronymic}".strip()
+
+        if self.not_specified_radio.isChecked():
+            gender = "Не указано"
+        elif self.male_radio.isChecked():
+            gender = "Мужской"
+        else:
+            gender = "Женский"
+
+        dob_unknown = self.fields["dob_unknown"].isChecked()
+        study_date_unknown = self.fields["study_date_unknown"].isChecked()
+
+        dob_str = (
+            "Неизвестно"
+            if dob_unknown
+            else self.dob_edit.date().toString("dd.MM.yyyy")
+        )
+        study_date_str = (
+            "Неизвестно"
+            if study_date_unknown
+            else self.study_date_edit.date().toString("dd.MM.yyyy")
+        )
+        age_str = "—"
+        if not dob_unknown and not study_date_unknown:
+            age = self.calculate_age(
+                self.dob_edit.date(), self.study_date_edit.date()
+            )
+            age_str = f"{age} лет"
+
+        # Убираем символ '*' из описаний
+        d_dimer_label = D_DIMER_DESCRIPTION[0].replace(" *", "")
+        interleukins_label = INTERLEUKINS_DESCRIPTION[0].replace(" *", "")
+        lymphocytes_label = LYMPHOCYTES_DESCRIPTION[0].replace(" *", "")
+
+        self.full_report = (
+            f"Пациент: {full_name.title()}\n"
+            f"Пол: {gender}\n"
+            f"Дата рождения: {dob_str}\n"
+            f"Возраст на момент исследования: {age_str}\n"
+            f"Дата исследования: {study_date_str}\n"
+            f"\n"
+            f"IVC-индекс: {ivc:,.0f}\n"
+            f"Интерпретация: {risk_level}{extra_warning}\n"
+            f"{d_dimer_label}: {d_dimer} нг/мл\n"
+            f"{interleukins_label}: {interleukins} пг/мл\n"
+            f"{lymphocytes_label}: {lymphocytes} ×10⁹/л"
+        )
+
+    def show_error(self, message: str):
+        """Показывает ошибку в блоке результата."""
+        self.result_value.setText(message)
+        self.result_value.setStyleSheet("color: #FF5722; font-weight: bold;")
+        self.result_value.show()
+        self.risk_label.hide()
+        self.copy_btn.setEnabled(False)
+        self.pdf_btn.setEnabled(False)
+
+    def reset_form(self):
+        """Сбрасывает всё к стартовому состоянию."""
+        # Скрываем результаты
+        self.result_value.hide()
+        self.risk_label.hide()
+
+        # Сбрасываем кнопки
+        self.calculate_btn.setEnabled(False)
+        self.reset_btn.setEnabled(False)
+        self.copy_btn.setEnabled(False)
+        self.pdf_btn.setEnabled(False)
+
+        # Очищаем все поля
+        for key in ("surname", "name", "patronymic"):
+            self.fields[key].clear()
+
+        self.not_specified_radio.setChecked(True)
+
+        self.dob_unknown_checkbox.setChecked(True)
+        self.study_date_unknown_checkbox.setChecked(True)
+        self.age_display.setText("—")
+
+        for key in ("d_dimer", "interleukins", "lymphocytes", "ct_percent"):
+            self.fields[key].clear()
+
+        # Восстанавливаем надпись
+        self.instruction_label.show()
+
+        # Убираем full_report (чтобы не остался старый)
+        if hasattr(self, "full_report"):
+            delattr(self, "full_report")
+
+        self.on_input_changed()
 
     def copy_to_clipboard(self):
         """
@@ -561,6 +674,8 @@ if __name__ == "__main__":
 
 """
 возможные фичи
+
+Убрать * из полей при копировании в буфер или сохранении в пдф
 
 валидация даты рождения и даты исследования. Дата рождения не может быть позже даты исследования.
 Дата исследования не может быть в будущем (позже текущей даты).
