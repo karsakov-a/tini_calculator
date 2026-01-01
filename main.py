@@ -10,6 +10,7 @@ from PySide6.QtGui import (
     QIntValidator,
     QRegularExpressionValidator,
     QTextDocument,
+    QIcon,
 )
 from PySide6.QtPrintSupport import QPrinter
 from PySide6.QtWidgets import (
@@ -30,7 +31,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from calculator import calculate_ivc, interpret_ivc
+from calculator import calculate_tini, interpret_tini
 
 load_dotenv()
 
@@ -43,8 +44,8 @@ if DEBUG:
 SIZE_MAIN_WINDOW = (440, 400)
 
 # Сообщения
-EXTRA_WARNING_CT_IVC = (
-    "\n⚠️ При IVC более 500 000 и КТ более 70%\nриск смерти превышает 95%"
+EXTRA_WARNING_CT_TINI = (
+    "\n⚠️ При TINI более 500 000 и КТ более 70%\nриск смерти превышает 95%"
 )
 
 
@@ -52,7 +53,7 @@ EXTRA_WARNING_CT_IVC = (
 FONT = "Segoe UI"
 FONT_SIZE = 10
 FONT_SIZE_TITLE = 14
-FONT_SIZE_RESULT_IVC = 16
+FONT_SIZE_RESULT_TINI = 16
 FONT_SIZE_RESULT_MESSAGE = 12
 
 # Валидация данных в полях ввода
@@ -69,6 +70,8 @@ MAX_CT_PERCENT = 100
 
 MIN_ALLOWED_DATE = QDate(1920, 1, 1)
 MAX_ALLOWED_DATE = QDate.currentDate()
+SET_DATE_BORN = QDate(1985, 1, 1)
+SET_DATE_RESEARCH = QDate.currentDate()
 
 # Описание полей ввода: (метка, внутренний ключ, placeholder)
 SURNAME_DESCRIPTION = (
@@ -106,7 +109,7 @@ CT_PERCENT_DESCRIPTION = (
 )
 
 
-class IVCCalculatorApp(QMainWindow):
+class TINICalculatorApp(QMainWindow):
     """
     Основной класс приложения — наследуется от QMainWindow.
     В нём создаётся весь интерфейс и логика взаимодействия.
@@ -118,7 +121,7 @@ class IVCCalculatorApp(QMainWindow):
 
         # Устанавливаем заголовок окна
         self.setWindowTitle(
-            "IVC Calculator — Индекс воспалительно-коагуляционного риска"
+            "TINI Calculator — Индекс воспалительно-коагуляционного риска"
         )
         # Устанавливаем начальный размер окна (ширина=400, высота=400 пикселей)
         self.resize(SIZE_MAIN_WINDOW[0], SIZE_MAIN_WINDOW[1])
@@ -137,8 +140,13 @@ class IVCCalculatorApp(QMainWindow):
         # Словарь для хранения ссылок на поля ввода (чтобы к ним можно было обращаться позже)
         self.fields = {}
 
+        # Устанавливаем иконку приложения
+        icon_path = self.get_icon_path()
+        if icon_path and os.path.isfile(icon_path):
+            self.setWindowIcon(QIcon(icon_path))
+
         # === Заголовок ===
-        title_label = QLabel("IVC Calculator")
+        title_label = QLabel("TINI Calculator")
         title_label.setAlignment(Qt.AlignCenter)
         title_label.setFont(QFont(FONT, FONT_SIZE_TITLE, QFont.Bold))
         layout.addWidget(title_label)
@@ -207,7 +215,7 @@ class IVCCalculatorApp(QMainWindow):
         self.dob_edit.setCalendarPopup(True)
         self.dob_edit.setDisplayFormat("dd.MM.yyyy")
         self.dob_edit.setDateRange(MIN_ALLOWED_DATE, MAX_ALLOWED_DATE)
-        self.dob_edit.setDate(MIN_ALLOWED_DATE)
+        self.dob_edit.setDate(SET_DATE_BORN)
         self.dob_edit.setEnabled(False)  # заблокировано по умолчанию
         self.dob_unknown_checkbox.toggled.connect(self.toggle_dob_input)
         self.dob_edit.dateChanged.connect(self.on_input_changed)
@@ -225,7 +233,7 @@ class IVCCalculatorApp(QMainWindow):
         age_label = QLabel("Возраст на момент исследования")
         self.age_display = QLineEdit()
         self.age_display.setReadOnly(True)
-        self.age_display.setPlaceholderText("Авто")
+        self.age_display.setPlaceholderText("—")
         age_layout.addWidget(age_label, 1)
         age_layout.addWidget(self.age_display, 2)
         patient_layout.addLayout(age_layout)
@@ -249,7 +257,7 @@ class IVCCalculatorApp(QMainWindow):
         self.study_date_edit.setCalendarPopup(True)
         self.study_date_edit.setDisplayFormat("dd.MM.yyyy")
         self.study_date_edit.setDateRange(MIN_ALLOWED_DATE, MAX_ALLOWED_DATE)
-        self.study_date_edit.setDate(MIN_ALLOWED_DATE)
+        self.study_date_edit.setDate(SET_DATE_RESEARCH)
         self.study_date_edit.setEnabled(False)  # заблокировано по умолчанию
         self.study_date_unknown_checkbox.toggled.connect(
             self.toggle_study_date_input
@@ -303,8 +311,8 @@ class IVCCalculatorApp(QMainWindow):
         study_group.setLayout(study_layout)
         layout.addWidget(study_group)
 
-        # === Блок 3: Результат IVC ===
-        result_group = QGroupBox("Результат IVC")
+        # === Блок 3: Результат TINI ===
+        result_group = QGroupBox("Результат TINI")
         result_group.setAlignment(Qt.AlignCenter)
         result_layout = QVBoxLayout()
 
@@ -315,9 +323,9 @@ class IVCCalculatorApp(QMainWindow):
         self.instruction_label.setWordWrap(True)
         result_layout.addWidget(self.instruction_label)
 
-        # Метка для IVC-значения (изначально скрыта)
+        # Метка для TINI-значения (изначально скрыта)
         self.result_value = QLabel("")
-        self.result_value.setFont(QFont(FONT, FONT_SIZE_RESULT_IVC))
+        self.result_value.setFont(QFont(FONT, FONT_SIZE_RESULT_TINI))
         self.result_value.setAlignment(Qt.AlignCenter)
         self.result_value.setWordWrap(True)
         self.result_value.hide()
@@ -462,17 +470,17 @@ class IVCCalculatorApp(QMainWindow):
                 return
 
         # Расчёт
-        ivc = calculate_ivc(d_dimer, interleukins, lymphocytes)
-        risk_level, color = interpret_ivc(ivc)
+        tini = calculate_tini(d_dimer, interleukins, lymphocytes)
+        risk_level, color = interpret_tini(tini)
 
         # Доп. предупреждение
         extra_warning = ""
         ct = self.get_float("ct_percent")
-        if ct > 70 and ivc > 500_000:
-            extra_warning = EXTRA_WARNING_CT_IVC
+        if ct > 70 and tini > 500_000:
+            extra_warning = EXTRA_WARNING_CT_TINI
 
         # Обновление интерфейса
-        self.result_value.setText(f"{ivc:,.0f}")
+        self.result_value.setText(f"{tini:,.0f}")
         self.result_value.setStyleSheet(f"color: {color}; font-weight: bold;")
         self.risk_label.setText(risk_level + extra_warning)
         self.risk_label.setStyleSheet(f"color: {color};")
@@ -538,7 +546,7 @@ class IVCCalculatorApp(QMainWindow):
             f"Возраст на момент исследования: {age_str}\n"
             f"Дата исследования: {study_date_str}\n"
             f"\n"
-            f"IVC-индекс: {ivc:,.0f}\n"
+            f"TINI-индекс: {tini:,.0f}\n"
             f"Интерпретация: {risk_level}{extra_warning}\n"
             f"{d_dimer_label}: {d_dimer} нг/мл\n"
             f"{interleukins_label}: {interleukins} пг/мл\n"
@@ -633,7 +641,7 @@ class IVCCalculatorApp(QMainWindow):
         doc = QTextDocument()
         # Форматируем отчёт как HTML (просто для структуры и шрифта)
         html = (
-            "<h2>Отчёт: IVC Calculator</h2>"
+            "<h2>Отчёт: TINI Calculator</h2>"
             "<pre style='font-family: Consolas, monospace; font-size: 12pt;'>"
             + self.full_report.replace("\n", "<br>")
             + "</pre>"
@@ -642,6 +650,15 @@ class IVCCalculatorApp(QMainWindow):
         doc.print_(printer)  # Сохраняет в PDF
 
         QMessageBox.information(self, "Успешно", f"Отчёт сохранён:\n{path}")
+
+    def get_icon_path(self):
+        """Возвращает путь к иконке, работает как в .py, так и в .exe."""
+        if getattr(sys, "frozen", False):
+            # Запуск из .exe (PyInstaller)
+            return os.path.join(sys._MEIPASS, "icon.ico")
+        else:
+            # Запуск из исходного кода
+            return os.path.join(os.path.dirname(__file__), "icon.ico")
 
 
 def main():
@@ -652,7 +669,7 @@ def main():
     app.setFont(QFont(FONT, FONT_SIZE))
 
     # Создаём и показываем главное окно
-    window = IVCCalculatorApp()
+    window = TINICalculatorApp()
     window.show()  # Отображает окно (по умолчанию оно скрыто)
 
     # Запускаем цикл обработки событий (ожидание действий пользователя)
@@ -675,16 +692,9 @@ if __name__ == "__main__":
 """
 возможные фичи
 
-Убрать * из полей при копировании в буфер или сохранении в пдф
-
-валидация даты рождения и даты исследования. Дата рождения не может быть позже даты исследования.
-Дата исследования не может быть в будущем (позже текущей даты).
-
-Добавить иконку приложения
-
 Сохранение истории расчётов (локально, без облака)
 Каждый расчёт сохраняется в ~/.ivc_calculator/history.json (или в AppData на Windows).
-В интерфейсе — кнопка «История» → мини-таблица (дата, IVC, возраст, КТ %).
+В интерфейсе — кнопка «История» → мини-таблица (дата, TINI, возраст, КТ %).
 Можно копировать или экспортировать группу расчётов в PDF.
 
 Валидация единиц измерения (с подсказками)
