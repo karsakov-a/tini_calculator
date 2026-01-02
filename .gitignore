@@ -1,6 +1,8 @@
 _DOCS/
 *.spec
-
+build/
+dist/
+*.ico
 
 #vscode
 .vscode/

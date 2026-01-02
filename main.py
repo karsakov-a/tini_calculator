@@ -11,6 +11,7 @@ from PySide6.QtGui import (
     QRegularExpressionValidator,
     QTextDocument,
     QIcon,
+    QValidator,
 )
 from PySide6.QtPrintSupport import QPrinter
 from PySide6.QtWidgets import (
@@ -31,7 +32,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from calculator import calculate_tini, interpret_tini
+import resources_rc
+from calculator import calculate_citi, interpret_citi
 
 load_dotenv()
 
@@ -44,8 +46,8 @@ if DEBUG:
 SIZE_MAIN_WINDOW = (440, 400)
 
 # Сообщения
-EXTRA_WARNING_CT_TINI = (
-    "\n⚠️ При TINI более 500 000 и КТ более 70%\nриск смерти превышает 95%"
+EXTRA_WARNING_CT_CITI = (
+    "\n⚠️ При CITI более 500 000 и КТ более 70%\nриск смерти превышает 95%"
 )
 
 
@@ -53,7 +55,7 @@ EXTRA_WARNING_CT_TINI = (
 FONT = "Segoe UI"
 FONT_SIZE = 10
 FONT_SIZE_TITLE = 14
-FONT_SIZE_RESULT_TINI = 16
+FONT_SIZE_RESULT_CITI = 16
 FONT_SIZE_RESULT_MESSAGE = 12
 
 # Валидация данных в полях ввода
@@ -109,7 +111,23 @@ CT_PERCENT_DESCRIPTION = (
 )
 
 
-class TINICalculatorApp(QMainWindow):
+def create_float_regex(
+    max_integer_digits: int, max_decimal_digits: int = 5
+) -> str:
+    """
+    Генерирует регулярное выражение для чисел с плавающей точкой.
+    Пример:
+        max_integer_digits=5, max_decimal_digits=5 → до 99999.99999
+        Допускает: '0', '123', '123.45', '.5' → интерпретируется как 0.5
+    """
+    int_part = f"\\d{{1,{max_integer_digits}}}"  # 1–5 цифр
+    dec_part = f"\\.\\d{{1,{max_decimal_digits}}}"  # .1–.99999
+    # Варианты: целое число | число с дробной частью | только дробная часть
+    pattern = f"^({int_part}{dec_part}?|{dec_part})$"
+    return pattern
+
+
+class CITICalculatorApp(QMainWindow):
     """
     Основной класс приложения — наследуется от QMainWindow.
     В нём создаётся весь интерфейс и логика взаимодействия.
@@ -121,7 +139,7 @@ class TINICalculatorApp(QMainWindow):
 
         # Устанавливаем заголовок окна
         self.setWindowTitle(
-            "TINI Calculator — Индекс воспалительно-коагуляционного риска"
+            "CITI Calculator — Индекс воспалительно-коагуляционного риска"
         )
         # Устанавливаем начальный размер окна (ширина=400, высота=400 пикселей)
         self.resize(SIZE_MAIN_WINDOW[0], SIZE_MAIN_WINDOW[1])
@@ -146,7 +164,7 @@ class TINICalculatorApp(QMainWindow):
             self.setWindowIcon(QIcon(icon_path))
 
         # === Заголовок ===
-        title_label = QLabel("TINI Calculator")
+        title_label = QLabel("CITI Calculator")
         title_label.setAlignment(Qt.AlignCenter)
         title_label.setFont(QFont(FONT, FONT_SIZE_TITLE, QFont.Bold))
         layout.addWidget(title_label)
@@ -209,7 +227,7 @@ class TINICalculatorApp(QMainWindow):
         # --- Дата рождения с опцией "неизвестна" ---
         dob_layout = QHBoxLayout()
         dob_label = QLabel("Дата рождения")
-        self.dob_unknown_checkbox = QCheckBox("Неизвестно")
+        self.dob_unknown_checkbox = QCheckBox("Не указано")
         self.dob_unknown_checkbox.setChecked(True)  # по умолчанию включено
         self.dob_edit = QDateEdit()
         self.dob_edit.setCalendarPopup(True)
@@ -249,7 +267,7 @@ class TINICalculatorApp(QMainWindow):
         # --- Дата исследования с опцией "неизвестна" ---
         study_date_layout = QHBoxLayout()
         study_date_label = QLabel("Дата исследования")
-        self.study_date_unknown_checkbox = QCheckBox("Неизвестно")
+        self.study_date_unknown_checkbox = QCheckBox("Не указано")
         self.study_date_unknown_checkbox.setChecked(
             True
         )  # по умолчанию включено
@@ -285,18 +303,18 @@ class TINICalculatorApp(QMainWindow):
             line_edit = QLineEdit()
             line_edit.setPlaceholderText(placeholder)
             if key in ("d_dimer", "interleukins"):
+                regex = create_float_regex(
+                    max_integer_digits=5, max_decimal_digits=DECIMAL_PLACES
+                )
                 line_edit.setValidator(
-                    QDoubleValidator(
-                        MIN_DDIMER_INTERLEUKINS,
-                        MAX_DDIMER_INTERLEUKINS,
-                        DECIMAL_PLACES,
-                    )
+                    QRegularExpressionValidator(QRegularExpression(regex))
                 )
             elif key == "lymphocytes":
+                regex = create_float_regex(
+                    max_integer_digits=2, max_decimal_digits=DECIMAL_PLACES
+                )
                 line_edit.setValidator(
-                    QDoubleValidator(
-                        MIN_LYMPHOCYTES, MAX_LYMPHOCYTES, DECIMAL_PLACES
-                    )
+                    QRegularExpressionValidator(QRegularExpression(regex))
                 )
             elif key == "ct_percent":
                 line_edit.setValidator(
@@ -311,8 +329,8 @@ class TINICalculatorApp(QMainWindow):
         study_group.setLayout(study_layout)
         layout.addWidget(study_group)
 
-        # === Блок 3: Результат TINI ===
-        result_group = QGroupBox("Результат TINI")
+        # === Блок 3: Результат CITI ===
+        result_group = QGroupBox("Результат CITI")
         result_group.setAlignment(Qt.AlignCenter)
         result_layout = QVBoxLayout()
 
@@ -323,9 +341,9 @@ class TINICalculatorApp(QMainWindow):
         self.instruction_label.setWordWrap(True)
         result_layout.addWidget(self.instruction_label)
 
-        # Метка для TINI-значения (изначально скрыта)
+        # Метка для CITI-значения (изначально скрыта)
         self.result_value = QLabel("")
-        self.result_value.setFont(QFont(FONT, FONT_SIZE_RESULT_TINI))
+        self.result_value.setFont(QFont(FONT, FONT_SIZE_RESULT_CITI))
         self.result_value.setAlignment(Qt.AlignCenter)
         self.result_value.setWordWrap(True)
         self.result_value.hide()
@@ -414,8 +432,11 @@ class TINICalculatorApp(QMainWindow):
 
         # Управление надписью
         if all_filled:
+            # Восстанавливаем стандартную инструкцию
+            self.instruction_label.setText("Введите все обязательные поля (*)")
             self.instruction_label.hide()
         else:
+            self.instruction_label.setText("Введите все обязательные поля (*)")
             self.instruction_label.show()
 
         # Активность кнопок
@@ -436,6 +457,21 @@ class TINICalculatorApp(QMainWindow):
         ):
             years -= 1
         return max(0, years)
+
+    def is_field_valid(self, key: str) -> bool:
+        """Проверяет, является ли содержимое поля допустимым."""
+        widget = self.fields[key]
+        if isinstance(widget, QLineEdit):
+            text = widget.text()
+            if not text:
+                return False
+            # Проверяем через валидатор
+            validator = widget.validator()
+            if validator:
+                state, _, _ = validator.validate(text, 0)
+                return state == QValidator.State.Acceptable
+            return True
+        return True
 
     def on_calculate(self):
         """Выполняет расчёт и показывает результат."""
@@ -469,18 +505,27 @@ class TINICalculatorApp(QMainWindow):
                 self.show_error("Дата исследования не может быть в будущем")
                 return
 
+        # Проверяем КТ: если поле не пустое, оно должно быть <= 100
+        ct_text = self.fields["ct_percent"].text().strip()
+        if ct_text:
+            if not self.is_field_valid("ct_percent"):
+                self.show_error(
+                    "Объем поражения лёгких должен быть от 0 до 100"
+                )
+                return
+
         # Расчёт
-        tini = calculate_tini(d_dimer, interleukins, lymphocytes)
-        risk_level, color = interpret_tini(tini)
+        citi = calculate_citi(d_dimer, interleukins, lymphocytes)
+        risk_level, color = interpret_citi(citi)
 
         # Доп. предупреждение
         extra_warning = ""
         ct = self.get_float("ct_percent")
-        if ct > 70 and tini > 500_000:
-            extra_warning = EXTRA_WARNING_CT_TINI
+        if ct > 70 and citi > 500_000:
+            extra_warning = EXTRA_WARNING_CT_CITI
 
         # Обновление интерфейса
-        self.result_value.setText(f"{tini:,.0f}")
+        self.result_value.setText(f"{citi:,.0f}")
         self.result_value.setStyleSheet(f"color: {color}; font-weight: bold;")
         self.risk_label.setText(risk_level + extra_warning)
         self.risk_label.setStyleSheet(f"color: {color};")
@@ -505,7 +550,16 @@ class TINICalculatorApp(QMainWindow):
         surname = self.fields["surname"].text().strip()
         name = self.fields["name"].text().strip()
         patronymic = self.fields["patronymic"].text().strip()
-        full_name = f"{surname} {name} {patronymic}".strip()
+
+        # Правило для ФИО: если все пустые — "Не указано", иначе объединяем
+        if surname == "" and name == "" and patronymic == "":
+            full_name = "Не указано"
+        else:
+            parts = [surname, name, patronymic]
+            full_name = " ".join(
+                part for part in parts if part
+            )  # убираем лишние пробелы
+            full_name = full_name.title()
 
         if self.not_specified_radio.isChecked():
             gender = "Не указано"
@@ -518,17 +572,18 @@ class TINICalculatorApp(QMainWindow):
         study_date_unknown = self.fields["study_date_unknown"].isChecked()
 
         dob_str = (
-            "Неизвестно"
+            "Не указано"
             if dob_unknown
             else self.dob_edit.date().toString("dd.MM.yyyy")
         )
         study_date_str = (
-            "Неизвестно"
+            "Не указано"
             if study_date_unknown
             else self.study_date_edit.date().toString("dd.MM.yyyy")
         )
-        age_str = "—"
-        if not dob_unknown and not study_date_unknown:
+        if dob_unknown or study_date_unknown:
+            age_str = "Не указано"
+        else:
             age = self.calculate_age(
                 self.dob_edit.date(), self.study_date_edit.date()
             )
@@ -546,7 +601,7 @@ class TINICalculatorApp(QMainWindow):
             f"Возраст на момент исследования: {age_str}\n"
             f"Дата исследования: {study_date_str}\n"
             f"\n"
-            f"TINI-индекс: {tini:,.0f}\n"
+            f"CITI-индекс: {citi:,.0f}\n"
             f"Интерпретация: {risk_level}{extra_warning}\n"
             f"{d_dimer_label}: {d_dimer} нг/мл\n"
             f"{interleukins_label}: {interleukins} пг/мл\n"
@@ -554,11 +609,13 @@ class TINICalculatorApp(QMainWindow):
         )
 
     def show_error(self, message: str):
-        """Показывает ошибку в блоке результата."""
-        self.result_value.setText(message)
-        self.result_value.setStyleSheet("color: #FF5722; font-weight: bold;")
-        self.result_value.show()
+        """Показывает ошибку в стиле инструкции (как 'Введите все обязательные поля')."""
+        self.instruction_label.setText(message)
+        self.instruction_label.show()
+        # Скрываем результаты расчёта
+        self.result_value.hide()
         self.risk_label.hide()
+        # Отключаем кнопки экспорта
         self.copy_btn.setEnabled(False)
         self.pdf_btn.setEnabled(False)
 
@@ -588,6 +645,7 @@ class TINICalculatorApp(QMainWindow):
             self.fields[key].clear()
 
         # Восстанавливаем надпись
+        self.instruction_label.setText("Введите все обязательные поля (*)")
         self.instruction_label.show()
 
         # Убираем full_report (чтобы не остался старый)
@@ -641,7 +699,7 @@ class TINICalculatorApp(QMainWindow):
         doc = QTextDocument()
         # Форматируем отчёт как HTML (просто для структуры и шрифта)
         html = (
-            "<h2>Отчёт: TINI Calculator</h2>"
+            "<h2>Отчёт: CITI Calculator</h2>"
             "<pre style='font-family: Consolas, monospace; font-size: 12pt;'>"
             + self.full_report.replace("\n", "<br>")
             + "</pre>"
@@ -654,8 +712,8 @@ class TINICalculatorApp(QMainWindow):
     def get_icon_path(self):
         """Возвращает путь к иконке, работает как в .py, так и в .exe."""
         if getattr(sys, "frozen", False):
-            # Запуск из .exe (PyInstaller)
-            return os.path.join(sys._MEIPASS, "icon.ico")
+            # Запуск из .exe — иконка встроена в ресурсы
+            return ":/icon.ico"
         else:
             # Запуск из исходного кода
             return os.path.join(os.path.dirname(__file__), "icon.ico")
@@ -669,7 +727,7 @@ def main():
     app.setFont(QFont(FONT, FONT_SIZE))
 
     # Создаём и показываем главное окно
-    window = TINICalculatorApp()
+    window = CITICalculatorApp()
     window.show()  # Отображает окно (по умолчанию оно скрыто)
 
     # Запускаем цикл обработки событий (ожидание действий пользователя)
@@ -694,7 +752,7 @@ if __name__ == "__main__":
 
 Сохранение истории расчётов (локально, без облака)
 Каждый расчёт сохраняется в ~/.ivc_calculator/history.json (или в AppData на Windows).
-В интерфейсе — кнопка «История» → мини-таблица (дата, TINI, возраст, КТ %).
+В интерфейсе — кнопка «История» → мини-таблица (дата, CITI, возраст, КТ %).
 Можно копировать или экспортировать группу расчётов в PDF.
 
 Валидация единиц измерения (с подсказками)
