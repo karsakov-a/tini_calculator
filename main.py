@@ -1,22 +1,23 @@
-import locale
+import logging
 import os
 import sys
+from datetime import datetime
+from functools import partial
+from pathlib import Path
 
 from dotenv import load_dotenv
 from PySide6.QtCore import QDate, QRegularExpression, Qt
 from PySide6.QtGui import (
-    QDoubleValidator,
     QFont,
     QIntValidator,
     QRegularExpressionValidator,
     QTextDocument,
-    QIcon,
-    QValidator,
 )
 from PySide6.QtPrintSupport import QPrinter
 from PySide6.QtWidgets import (
     QApplication,
     QButtonGroup,
+    QCheckBox,
     QDateEdit,
     QFileDialog,
     QGroupBox,
@@ -27,146 +28,158 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QPushButton,
     QRadioButton,
-    QCheckBox,
     QVBoxLayout,
     QWidget,
 )
 
-import resources_rc
-from calculator import calculate_citi, interpret_citi
-
-load_dotenv()
-
-DEBUG = os.getenv("DEBUG", "False").lower() == "true"
-
-if DEBUG:
-    print("Программа запущена в режиме отладки")
-
-
-SIZE_MAIN_WINDOW = (440, 400)
-
-# Сообщения
-EXTRA_WARNING_CT_CITI = (
-    "\n⚠️ При CITI более 500 000 и КТ более 70%\nриск смерти превышает 95%"
-)
-
-
-# Шрифты
-FONT = "Segoe UI"
-FONT_SIZE = 10
+# === Настройки приложения ===
+APP_NAME = "TINI Calculator"
+APP_TITLE = "TINI Calculator — Тромбо-воспалительный индекс"
+WINDOW_SIZE = (440, 400)
+FONT_FAMILY = "Segoe UI"
+FONT_SIZE_BASE = 10
 FONT_SIZE_TITLE = 14
-FONT_SIZE_RESULT_CITI = 16
+FONT_SIZE_RESULT_VALUE = 16
 FONT_SIZE_RESULT_MESSAGE = 12
 
-# Валидация данных в полях ввода
-MIN_NAME_SURNAME_PATRONYMIC_LENGTH = 2
-MAX_NAME_SURNAME_PATRONYMIC_LENGTH = 20
+# === Валидация полей ===
+MIN_NAME_LEN = 2
+MAX_NAME_LEN = 20
 MIN_DDIMER_INTERLEUKINS = 0.0
 MAX_DDIMER_INTERLEUKINS = 5000.0
 MIN_LYMPHOCYTES = 0.0
 MAX_LYMPHOCYTES = 10.0
 DECIMAL_PLACES = 5
-
 MIN_CT_PERCENT = 0
 MAX_CT_PERCENT = 100
 
-MIN_ALLOWED_DATE = QDate(1920, 1, 1)
-MAX_ALLOWED_DATE = QDate.currentDate()
-SET_DATE_BORN = QDate(1985, 1, 1)
-SET_DATE_RESEARCH = QDate.currentDate()
+# === Пороги интерпретации ===
+TINI_LOW_THRESHOLD = 100_000
+TINI_HIGH_THRESHOLD = 500_000
 
-# Описание полей ввода: (метка, внутренний ключ, placeholder)
-SURNAME_DESCRIPTION = (
-    "Фамилия",
-    "surname",
+# === Даты ===
+MIN_DATE = QDate(1920, 1, 1)
+MAX_DATE = QDate.currentDate()
+DEFAULT_DATE_BORN = QDate(1985, 1, 1)
+DEFAULT_DATE_RESEARCH = QDate.currentDate()
+DATE_FORMAT = "dd.MM.yyyy"
+
+# === Сообщения и надписи ===
+ERROR_MESSAGE_CT = (
+    "Объем поражения лёгких должен быть целым числом от 0 до 100"
 )
-NAME_DESCRIPTION = (
-    "Имя",
-    "name",
+INSTRUCTION_DEFAULT = "Введите все обязательные поля (*)"
+EXTRA_WARNING_CT_TINI = (
+    "\n⚠️ При TINI более 500 000 и КТ более 70%\nриск смерти превышает 95%"
 )
-PATRONYMIC_DESCRIPTION = (
-    "Отчество",
-    "patronymic",
-)
-D_DIMER_DESCRIPTION = (
+
+# Поля ввода: (метка, ключ, placeholder)
+SURNAME_DESC = ("Фамилия", "surname")
+NAME_DESC = ("Имя", "name")
+PATRONYMIC_DESC = ("Отчество", "patronymic")
+D_DIMER_DESC = (
     "D-димер (нг/мл) *",
     "d_dimer",
     f"{MIN_DDIMER_INTERLEUKINS}–{MAX_DDIMER_INTERLEUKINS}",
 )
-INTERLEUKINS_DESCRIPTION = (
+INTERLEUKINS_DESC = (
     "Интерлейкины, IL–6 (пг/мл) *",
     "interleukins",
     f"{MIN_DDIMER_INTERLEUKINS}–{MAX_DDIMER_INTERLEUKINS}",
 )
-LYMPHOCYTES_DESCRIPTION = (
+LYMPHOCYTES_DESC = (
     "Лимфоциты (×10⁹/л) *",
     "lymphocytes",
     f"от {MIN_LYMPHOCYTES} до {MAX_LYMPHOCYTES}",
 )
-
-CT_PERCENT_DESCRIPTION = (
+CT_PERCENT_DESC = (
     "Объем поражения лёгких \nпо данным МСКТ (%)",
     "ct_percent",
     f"от {MIN_CT_PERCENT} до {MAX_CT_PERCENT}",
 )
+GENDER = "Пол"
+BIRTH_DATE = "Дата рождения"
+AGE = "Возраст на момент исследования"
+RESEARCH_DATE = "Дата исследования"
+
+FULL_NAME_PLACEHOLDER = f"Только буквы, {MIN_NAME_LEN}–{MAX_NAME_LEN} символов"
+FULL_NAME_PATTERN = f"^[а-яА-ЯёЁa-zA-Z]{{{MIN_NAME_LEN},{MAX_NAME_LEN}}}$"
+UNKNOWN_STATUS = "Не указано"
+
+# === Пол ===
+GENDER_MALE = "Мужской"
+GENDER_FEMALE = "Женский"
+
+# === Тексты кнопок ===
+BUTTON_CALCULATE = "ВЫПОЛНИТЬ РАСЧЁТ"
+BUTTON_RESET = "Сбросить"
+BUTTON_COPY = "Скопировать отчёт"
+BUTTON_SAVE_PDF = "Сохранить в PDF"
+
+# === Интерпретация ===
+RISK_LOW = "Низкий риск смерти"
+RISK_MODERATE = "Умеренный риск"
+RISK_HIGH = "Высокий риск смерти"
+COLOR_LOW = "#4CAF50"
+COLOR_MODERATE = "#FFC107"
+COLOR_HIGH = "#F44336"
+
+
+def calculate_tini(
+    d_dimer: float, interleukins: float, lymphocytes: float
+) -> float:
+    """Вычисляет TINI-индекс с защитой от деления на ноль."""
+    denominator = lymphocytes if lymphocytes > 0 else 0.1
+    return (d_dimer * interleukins) / denominator
+
+
+def interpret_tini(tini: float):
+    """Возвращает уровень риска и цвет по значению TINI."""
+    if tini < TINI_LOW_THRESHOLD:
+        return RISK_LOW, COLOR_LOW
+    elif tini <= TINI_HIGH_THRESHOLD:
+        return RISK_MODERATE, COLOR_MODERATE
+    else:
+        return RISK_HIGH, COLOR_HIGH
 
 
 def create_float_regex(
     max_integer_digits: int, max_decimal_digits: int = 5
 ) -> str:
-    """
-    Генерирует регулярное выражение для чисел с плавающей точкой.
-    Пример:
-        max_integer_digits=5, max_decimal_digits=5 → до 99999.99999
-        Допускает: '0', '123', '123.45', '.5' → интерпретируется как 0.5
-    """
-    int_part = f"\\d{{1,{max_integer_digits}}}"  # 1–5 цифр
-    dec_part = f"\\.\\d{{1,{max_decimal_digits}}}"  # .1–.99999
-    # Варианты: целое число | число с дробной частью | только дробная часть
-    pattern = f"^({int_part}{dec_part}?|{dec_part})$"
-    return pattern
+    """Генерирует регулярное выражение для чисел с плавающей точкой."""
+    int_part = f"\\d{{1,{max_integer_digits}}}"
+    dec_part = f"\\.\\d{{1,{max_decimal_digits}}}"
+    return f"^({int_part}{dec_part}?|{dec_part})$"
 
 
-class CITICalculatorApp(QMainWindow):
-    """
-    Основной класс приложения — наследуется от QMainWindow.
-    В нём создаётся весь интерфейс и логика взаимодействия.
-    """
+def setup_logger(debug: bool = False):
+    """Настраивает логирование в файл по дате."""
+    logs_dir = Path("logs")
+    logs_dir.mkdir(exist_ok=True)
+    log_file = logs_dir / f"{datetime.now().strftime('%Y-%m-%d')}.log"
+    logging.basicConfig(
+        level=logging.DEBUG if debug else logging.INFO,
+        format="%(asctime)s - %(levelname)s - %(message)s",
+        handlers=[logging.FileHandler(log_file, encoding="utf-8")],
+    )
+    logging.info("Запуск TINI Calculator")
 
+
+class TINICalculatorApp(QMainWindow):
     def __init__(self):
-        # Вызываем конструктор родительского класса (обязательно!)
         super().__init__()
+        self.setWindowTitle(APP_TITLE)
+        self.resize(*WINDOW_SIZE)
 
-        # Устанавливаем заголовок окна
-        self.setWindowTitle(
-            "CITI Calculator — Индекс воспалительно-коагуляционного риска"
-        )
-        # Устанавливаем начальный размер окна (ширина=400, высота=400 пикселей)
-        self.resize(SIZE_MAIN_WINDOW[0], SIZE_MAIN_WINDOW[1])
-
-        if DEBUG:
-            self.move(550, 100)
-
-        # Создаём центральный виджет — в Qt главное окно не может напрямую содержать другие виджеты,
-        # поэтому нужно установить один центральный виджет, внутри которого будет весь интерфейс.
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
-
-        # Создаём вертикальный макет (VBox): виджеты будут располагаться сверху вниз
         layout = QVBoxLayout(central_widget)
-
-        # Словарь для хранения ссылок на поля ввода (чтобы к ним можно было обращаться позже)
         self.fields = {}
 
-        # Устанавливаем иконку приложения
-        icon_path = self.get_icon_path()
-        if icon_path and os.path.isfile(icon_path):
-            self.setWindowIcon(QIcon(icon_path))
-
         # === Заголовок ===
-        title_label = QLabel("CITI Calculator")
+        title_label = QLabel(APP_NAME)
         title_label.setAlignment(Qt.AlignCenter)
-        title_label.setFont(QFont(FONT, FONT_SIZE_TITLE, QFont.Bold))
+        title_label.setFont(QFont(FONT_FAMILY, FONT_SIZE_TITLE, QFont.Bold))
         layout.addWidget(title_label)
 
         # === Блок 1: Данные пациента ===
@@ -175,26 +188,17 @@ class CITICalculatorApp(QMainWindow):
         patient_layout = QVBoxLayout()
 
         # --- ФИО ---
-        name_fields = [
-            SURNAME_DESCRIPTION,
-            NAME_DESCRIPTION,
-            PATRONYMIC_DESCRIPTION,
-        ]
-        for label_text, key in name_fields:
+        for label_text, key in [SURNAME_DESC, NAME_DESC, PATRONYMIC_DESC]:
             row = QHBoxLayout()
             label = QLabel(label_text)
             line_edit = QLineEdit()
-            line_edit.setMaxLength(MAX_NAME_SURNAME_PATRONYMIC_LENGTH)
-            line_edit.setPlaceholderText(
-                f"Только буквы, {MIN_NAME_SURNAME_PATRONYMIC_LENGTH}–"
-                f"{MAX_NAME_SURNAME_PATRONYMIC_LENGTH} символов"
+            line_edit.setMaxLength(MAX_NAME_LEN)
+            line_edit.setPlaceholderText(FULL_NAME_PLACEHOLDER)
+            pattern = FULL_NAME_PATTERN
+            validator = QRegularExpressionValidator(
+                QRegularExpression(pattern)
             )
-            pattern = (
-                f"^[а-яА-ЯёЁa-zA-Z]{{{MIN_NAME_SURNAME_PATRONYMIC_LENGTH},"
-                f"{MAX_NAME_SURNAME_PATRONYMIC_LENGTH}}}$"
-            )
-            name_regex = QRegularExpression(pattern)
-            line_edit.setValidator(QRegularExpressionValidator(name_regex))
+            line_edit.setValidator(validator)
             line_edit.textChanged.connect(self.on_input_changed)
             row.addWidget(label, 1)
             row.addWidget(line_edit, 2)
@@ -203,52 +207,50 @@ class CITICalculatorApp(QMainWindow):
 
         # --- Пол ---
         gender_layout = QHBoxLayout()
-        gender_label = QLabel("Пол")
-        self.not_specified_radio = QRadioButton("Не указано")
-        self.male_radio = QRadioButton("Мужской")
-        self.female_radio = QRadioButton("Женский")
-
-        # Группа для взаимоисключающего выбора
+        gender_label = QLabel(GENDER)
+        self.radio_not_specified = QRadioButton(UNKNOWN_STATUS)
+        self.radio_male = QRadioButton(GENDER_MALE)
+        self.radio_female = QRadioButton(GENDER_FEMALE)
         self.gender_group = QButtonGroup()
-        self.gender_group.addButton(self.not_specified_radio)
-        self.gender_group.addButton(self.male_radio)
-        self.gender_group.addButton(self.female_radio)
-
-        self.not_specified_radio.setChecked(True)
-
+        for radio in [
+            self.radio_not_specified,
+            self.radio_male,
+            self.radio_female,
+        ]:
+            self.gender_group.addButton(radio)
+        self.radio_not_specified.setChecked(True)
         self.gender_group.buttonToggled.connect(self.on_input_changed)
-
         gender_layout.addWidget(gender_label, 1)
-        gender_layout.addWidget(self.not_specified_radio)
-        gender_layout.addWidget(self.male_radio)
-        gender_layout.addWidget(self.female_radio)
+        gender_layout.addWidget(self.radio_not_specified)
+        gender_layout.addWidget(self.radio_male)
+        gender_layout.addWidget(self.radio_female)
         patient_layout.addLayout(gender_layout)
 
-        # --- Дата рождения с опцией "неизвестна" ---
+        # --- Дата рождения ---
         dob_layout = QHBoxLayout()
-        dob_label = QLabel("Дата рождения")
-        self.dob_unknown_checkbox = QCheckBox("Не указано")
-        self.dob_unknown_checkbox.setChecked(True)  # по умолчанию включено
+        dob_label = QLabel(BIRTH_DATE)
+        self.dob_unknown = QCheckBox(UNKNOWN_STATUS)
+        self.dob_unknown.setChecked(True)
         self.dob_edit = QDateEdit()
         self.dob_edit.setCalendarPopup(True)
-        self.dob_edit.setDisplayFormat("dd.MM.yyyy")
-        self.dob_edit.setDateRange(MIN_ALLOWED_DATE, MAX_ALLOWED_DATE)
-        self.dob_edit.setDate(SET_DATE_BORN)
-        self.dob_edit.setEnabled(False)  # заблокировано по умолчанию
-        self.dob_unknown_checkbox.toggled.connect(self.toggle_dob_input)
+        self.dob_edit.setDisplayFormat(DATE_FORMAT)
+        self.dob_edit.setDateRange(MIN_DATE, MAX_DATE)
+        self.dob_edit.setDate(DEFAULT_DATE_BORN)
+        self.dob_edit.setEnabled(False)
+        self.dob_unknown.toggled.connect(
+            partial(self.toggle_date_input, self.dob_edit)
+        )
         self.dob_edit.dateChanged.connect(self.on_input_changed)
         dob_layout.addWidget(dob_label, 1)
-        dob_layout.addWidget(self.dob_unknown_checkbox)
+        dob_layout.addWidget(self.dob_unknown)
         dob_layout.addWidget(self.dob_edit, 2)
         patient_layout.addLayout(dob_layout)
         self.fields["date_birth"] = self.dob_edit
-        self.fields["dob_unknown"] = (
-            self.dob_unknown_checkbox
-        )  # <-- новая ссылка
+        self.fields["dob_unknown"] = self.dob_unknown
 
-        # --- Возраст на момент исследования (только для отображения) ---
+        # --- Возраст ---
         age_layout = QHBoxLayout()
-        age_label = QLabel("Возраст на момент исследования")
+        age_label = QLabel(AGE)
         self.age_display = QLineEdit()
         self.age_display.setReadOnly(True)
         self.age_display.setPlaceholderText("—")
@@ -264,55 +266,47 @@ class CITICalculatorApp(QMainWindow):
         study_group.setAlignment(Qt.AlignCenter)
         study_layout = QVBoxLayout()
 
-        # --- Дата исследования с опцией "неизвестна" ---
+        # --- Дата исследования ---
         study_date_layout = QHBoxLayout()
-        study_date_label = QLabel("Дата исследования")
-        self.study_date_unknown_checkbox = QCheckBox("Не указано")
-        self.study_date_unknown_checkbox.setChecked(
-            True
-        )  # по умолчанию включено
+        study_date_label = QLabel(RESEARCH_DATE)
+        self.study_date_unknown = QCheckBox(UNKNOWN_STATUS)
+        self.study_date_unknown.setChecked(True)
         self.study_date_edit = QDateEdit()
         self.study_date_edit.setCalendarPopup(True)
-        self.study_date_edit.setDisplayFormat("dd.MM.yyyy")
-        self.study_date_edit.setDateRange(MIN_ALLOWED_DATE, MAX_ALLOWED_DATE)
-        self.study_date_edit.setDate(SET_DATE_RESEARCH)
-        self.study_date_edit.setEnabled(False)  # заблокировано по умолчанию
-        self.study_date_unknown_checkbox.toggled.connect(
-            self.toggle_study_date_input
+        self.study_date_edit.setDisplayFormat(DATE_FORMAT)
+        self.study_date_edit.setDateRange(MIN_DATE, MAX_DATE)
+        self.study_date_edit.setDate(DEFAULT_DATE_RESEARCH)
+        self.study_date_edit.setEnabled(False)
+        self.study_date_unknown.toggled.connect(
+            partial(self.toggle_date_input, self.study_date_edit)
         )
         self.study_date_edit.dateChanged.connect(self.on_input_changed)
         study_date_layout.addWidget(study_date_label, 1)
-        study_date_layout.addWidget(self.study_date_unknown_checkbox)
+        study_date_layout.addWidget(self.study_date_unknown)
         study_date_layout.addWidget(self.study_date_edit, 2)
         study_layout.addLayout(study_date_layout)
         self.fields["study_date"] = self.study_date_edit
-        self.fields["study_date_unknown"] = (
-            self.study_date_unknown_checkbox
-        )  # <-- новая ссылка
+        self.fields["study_date_unknown"] = self.study_date_unknown
 
-        # --- Лабораторные параметры ---
-        lab_inputs = [
-            D_DIMER_DESCRIPTION,
-            INTERLEUKINS_DESCRIPTION,
-            LYMPHOCYTES_DESCRIPTION,
-            CT_PERCENT_DESCRIPTION,
-        ]
-        for label_text, key, placeholder in lab_inputs:
+        # --- Параметры ---
+        for desc in [
+            D_DIMER_DESC,
+            INTERLEUKINS_DESC,
+            LYMPHOCYTES_DESC,
+            CT_PERCENT_DESC,
+        ]:
             row = QHBoxLayout()
-            label = QLabel(label_text)
+            label = QLabel(desc[0])
             line_edit = QLineEdit()
-            line_edit.setPlaceholderText(placeholder)
+            line_edit.setPlaceholderText(desc[2])
+            key = desc[1]
             if key in ("d_dimer", "interleukins"):
-                regex = create_float_regex(
-                    max_integer_digits=5, max_decimal_digits=DECIMAL_PLACES
-                )
+                regex = create_float_regex(5, DECIMAL_PLACES)
                 line_edit.setValidator(
                     QRegularExpressionValidator(QRegularExpression(regex))
                 )
             elif key == "lymphocytes":
-                regex = create_float_regex(
-                    max_integer_digits=2, max_decimal_digits=DECIMAL_PLACES
-                )
+                regex = create_float_regex(2, DECIMAL_PLACES)
                 line_edit.setValidator(
                     QRegularExpressionValidator(QRegularExpression(regex))
                 )
@@ -329,29 +323,28 @@ class CITICalculatorApp(QMainWindow):
         study_group.setLayout(study_layout)
         layout.addWidget(study_group)
 
-        # === Блок 3: Результат CITI ===
-        result_group = QGroupBox("Результат CITI")
+        # === Блок 3: Результат TINI ===
+        result_group = QGroupBox("Результат TINI")
         result_group.setAlignment(Qt.AlignCenter)
         result_layout = QVBoxLayout()
 
-        # Надпись-заглушка (всегда видна)
-        self.instruction_label = QLabel("Введите все обязательные поля (*)")
-        self.instruction_label.setFont(QFont(FONT, FONT_SIZE_RESULT_MESSAGE))
+        self.instruction_label = QLabel(INSTRUCTION_DEFAULT)
+        self.instruction_label.setFont(
+            QFont(FONT_FAMILY, FONT_SIZE_RESULT_MESSAGE)
+        )
         self.instruction_label.setAlignment(Qt.AlignCenter)
         self.instruction_label.setWordWrap(True)
         result_layout.addWidget(self.instruction_label)
 
-        # Метка для CITI-значения (изначально скрыта)
         self.result_value = QLabel("")
-        self.result_value.setFont(QFont(FONT, FONT_SIZE_RESULT_CITI))
+        self.result_value.setFont(QFont(FONT_FAMILY, FONT_SIZE_RESULT_VALUE))
         self.result_value.setAlignment(Qt.AlignCenter)
         self.result_value.setWordWrap(True)
         self.result_value.hide()
         result_layout.addWidget(self.result_value)
 
-        # Метка для интерпретации риска (изначально скрыта)
         self.risk_label = QLabel("")
-        self.risk_label.setFont(QFont(FONT, FONT_SIZE_RESULT_MESSAGE))
+        self.risk_label.setFont(QFont(FONT_FAMILY, FONT_SIZE_RESULT_MESSAGE))
         self.risk_label.setAlignment(Qt.AlignCenter)
         self.risk_label.setWordWrap(True)
         self.risk_label.hide()
@@ -360,38 +353,39 @@ class CITICalculatorApp(QMainWindow):
         result_group.setLayout(result_layout)
         layout.addWidget(result_group)
 
-        # === Кнопки в два ряда ===
-        # Ряд 1: Выполнить и Сбросить
-        row1_layout = QHBoxLayout()
-        self.calculate_btn = QPushButton("ВЫПОЛНИТЬ РАСЧЁТ")
-        self.reset_btn = QPushButton("Сбросить")
+        # === Кнопки ===
+        btn_row1 = QHBoxLayout()
+        self.calculate_btn = QPushButton(BUTTON_CALCULATE)
+        self.reset_btn = QPushButton(BUTTON_RESET)
         self.calculate_btn.clicked.connect(self.on_calculate)
         self.reset_btn.clicked.connect(self.reset_form)
-        self.calculate_btn.setEnabled(False)
-        self.reset_btn.setEnabled(False)
-        row1_layout.addWidget(self.calculate_btn)
-        row1_layout.addWidget(self.reset_btn)
+        btn_row1.addWidget(self.calculate_btn)
+        btn_row1.addWidget(self.reset_btn)
 
-        # Ряд 2: Скопировать и Сохранить
-        row2_layout = QHBoxLayout()
-        self.copy_btn = QPushButton("Скопировать отчёт")
-        self.pdf_btn = QPushButton("Сохранить в PDF")
+        btn_row2 = QHBoxLayout()
+        self.copy_btn = QPushButton(BUTTON_COPY)
+        self.pdf_btn = QPushButton(BUTTON_SAVE_PDF)
         self.copy_btn.clicked.connect(self.copy_to_clipboard)
         self.pdf_btn.clicked.connect(self.save_to_pdf)
+        btn_row2.addWidget(self.copy_btn)
+        btn_row2.addWidget(self.pdf_btn)
+
+        result_layout.addLayout(btn_row1)
+        result_layout.addLayout(btn_row2)
+
+        # Инициализация состояния кнопок
+        self.calculate_btn.setEnabled(False)
+        self.reset_btn.setEnabled(False)
         self.copy_btn.setEnabled(False)
         self.pdf_btn.setEnabled(False)
-        row2_layout.addWidget(self.copy_btn)
-        row2_layout.addWidget(self.pdf_btn)
 
-        # Добавляем оба ряда в макет результата
-        result_layout.addLayout(row1_layout)
-        result_layout.addLayout(row2_layout)
+        self.on_input_changed()  # инициализация состояния
 
     def get_float(self, key: str, default: float = 0.0) -> float:
         """
-        Безопасно извлекает число из текстового поля.
-        Заменяет запятую на точку (для удобства ввода в РФ),
-        возвращает default, если ввод некорректен или пуст.
+        Безопасно преобразует текст из поля ввода в число с плавающей точкой.
+        Заменяет запятые на точки (для удобства ввода в русскоязычной среде)
+        и возвращает значение по умолчанию при некорректном или пустом вводе.
         """
         text = self.fields[key].text().strip().replace(",", ".")
         if not text:
@@ -401,22 +395,50 @@ class CITICalculatorApp(QMainWindow):
         except ValueError:
             return default
 
-    def toggle_dob_input(self, checked: bool):
-        """Блокирует/разблокирует поле даты рождения."""
-        self.dob_edit.setEnabled(not checked)
+    def toggle_date_input(self, date_edit: QDateEdit, checked: bool):
+        """
+        Переключает доступность виджета даты
+        в зависимости от состояния чекбокса.
+        """
+        date_edit.setEnabled(not checked)
         self.on_input_changed()
 
-    def toggle_study_date_input(self, checked: bool):
-        """Блокирует/разблокирует поле даты исследования."""
-        self.study_date_edit.setEnabled(not checked)
-        self.on_input_changed()
+    def calculate_age(self, birth: QDate, study: QDate) -> int:
+        """Рассчитывает возраст."""
+        if not birth.isValid() or not study.isValid():
+            return 0
+        years = study.year() - birth.year()
+        if (study.month(), study.day()) < (birth.month(), birth.day()):
+            years -= 1
+        return max(0, years)
+
+    def is_ct_valid(self) -> bool:
+        """Проверяет, что КТ — целое число от 0 до 100."""
+        text = self.fields["ct_percent"].text().strip()
+        if not text:
+            return True
+        try:
+            value = float(text.replace(",", "."))
+            return (
+                MIN_CT_PERCENT <= value <= MAX_CT_PERCENT
+                and value.is_integer()
+            )
+        except ValueError:
+            return False
 
     def on_input_changed(self):
-        """Обновляет возраст и надпись о заполнении обязательных полей."""
-        # Обновляем возраст
-        dob_unknown = self.fields["dob_unknown"].isChecked()
-        study_date_unknown = self.fields["study_date_unknown"].isChecked()
-        if not dob_unknown and not study_date_unknown:
+        """
+        Обрабатывает изменение любого поля ввода.
+        Обновляет отображаемый возраст (если указаны обе даты) и проверяет,
+        заполнены ли все обязательные лабораторные параметры.
+        Управляет видимостью инструкции и
+        активностью кнопки 'Выполнить расчёт'.
+        """
+        # Обновление возраста
+        if (
+            not self.fields["dob_unknown"].isChecked()
+            and not self.fields["study_date_unknown"].isChecked()
+        ):
             age = self.calculate_age(
                 self.dob_edit.date(), self.study_date_edit.date()
             )
@@ -424,350 +446,197 @@ class CITICalculatorApp(QMainWindow):
         else:
             self.age_display.setText("—")
 
-        # Проверяем обязательные поля
+        # Проверка обязательных полей
         d_dimer = self.get_float("d_dimer")
         interleukins = self.get_float("interleukins")
         lymphocytes = self.get_float("lymphocytes")
         all_filled = d_dimer > 0 and interleukins > 0 and lymphocytes > 0
 
-        # Управление надписью
-        if all_filled:
-            # Восстанавливаем стандартную инструкцию
-            self.instruction_label.setText("Введите все обязательные поля (*)")
-            self.instruction_label.hide()
-        else:
-            self.instruction_label.setText("Введите все обязательные поля (*)")
-            self.instruction_label.show()
+        self.instruction_label.setText(INSTRUCTION_DEFAULT)
+        self.instruction_label.setVisible(not all_filled)
 
-        # Активность кнопок
+        # Только кнопка расчёта зависит от ввода
         self.calculate_btn.setEnabled(all_filled)
 
-    def calculate_age(self, birth_date: QDate, study_date: QDate) -> int:
-        """
-        Рассчитывает возраст в годах на дату исследования.
-        Учитывает, был ли уже день рождения в этом году.
-        """
-        if not birth_date.isValid() or not study_date.isValid():
-            return 0
-        years = study_date.year() - birth_date.year()
-        # Если день рождения ещё не наступил в год исследования — минус 1 год
-        if (study_date.month(), study_date.day()) < (
-            birth_date.month(),
-            birth_date.day(),
-        ):
-            years -= 1
-        return max(0, years)
-
-    def is_field_valid(self, key: str) -> bool:
-        """Проверяет, является ли содержимое поля допустимым."""
-        widget = self.fields[key]
-        if isinstance(widget, QLineEdit):
-            text = widget.text()
-            if not text:
-                return False
-            # Проверяем через валидатор
-            validator = widget.validator()
-            if validator:
-                state, _, _ = validator.validate(text, 0)
-                return state == QValidator.State.Acceptable
-            return True
-        return True
-
     def on_calculate(self):
-        """Выполняет расчёт и показывает результат."""
-        # Проверка данных
+        """Основная логика."""
         d_dimer = self.get_float("d_dimer")
         interleukins = self.get_float("interleukins")
         lymphocytes = self.get_float("lymphocytes")
 
-        if d_dimer <= 0 or interleukins <= 0 or lymphocytes <= 0:
-            return  # Кнопка не должна быть активна, но на всякий случай
+        if not (d_dimer > 0 and interleukins > 0 and lymphocytes > 0):
+            return
 
-        # Валидация дат
-        dob_unknown = self.fields["dob_unknown"].isChecked()
-        study_date_unknown = self.fields["study_date_unknown"].isChecked()
-
-        if not dob_unknown and not study_date_unknown:
-            birth_date = self.dob_edit.date()
-            study_date = self.study_date_edit.date()
-
-            if not birth_date.isValid() or not study_date.isValid():
-                self.show_error("Некорректные даты")
-                return
-
-            if birth_date > study_date:
-                self.show_error(
-                    "Дата рождения не может быть позже даты исследования"
-                )
-                return
-
-            if study_date > QDate.currentDate():
-                self.show_error("Дата исследования не может быть в будущем")
-                return
-
-        # Проверяем КТ: если поле не пустое, оно должно быть <= 100
-        ct_text = self.fields["ct_percent"].text().strip()
-        if ct_text:
-            if not self.is_field_valid("ct_percent"):
-                self.show_error(
-                    "Объем поражения лёгких должен быть от 0 до 100"
-                )
-                return
+        # Проверка КТ
+        if not self.is_ct_valid():
+            self.show_error(ERROR_MESSAGE_CT)
+            return
 
         # Расчёт
-        citi = calculate_citi(d_dimer, interleukins, lymphocytes)
-        risk_level, color = interpret_citi(citi)
+        tini = calculate_tini(d_dimer, interleukins, lymphocytes)
+        risk, color = interpret_tini(tini)
 
-        # Доп. предупреждение
-        extra_warning = ""
-        ct = self.get_float("ct_percent")
-        if ct > 70 and citi > 500_000:
-            extra_warning = EXTRA_WARNING_CT_CITI
+        extra = (
+            EXTRA_WARNING_CT_TINI
+            if self.get_float("ct_percent") > 70 and tini > TINI_HIGH_THRESHOLD
+            else ""
+        )
 
-        # Обновление интерфейса
-        self.result_value.setText(f"{citi:,.0f}")
+        self.result_value.setText(f"{tini:,.0f}")
         self.result_value.setStyleSheet(f"color: {color}; font-weight: bold;")
-        self.risk_label.setText(risk_level + extra_warning)
+        self.risk_label.setText(risk + extra)
         self.risk_label.setStyleSheet(f"color: {color};")
 
-        # Показываем результат
         self.result_value.show()
         self.risk_label.show()
-
-        # Активируем кнопки экспорта
-        self.copy_btn.setEnabled(True)
-        self.pdf_btn.setEnabled(True)
-
-        # Активируем ВСЕ кнопки после успешного расчёта
-        self.calculate_btn.setEnabled(
-            True
-        )  # можно пересчитать при изменении данных
-        self.reset_btn.setEnabled(True)
-        self.copy_btn.setEnabled(True)
-        self.pdf_btn.setEnabled(True)
 
         # === Формирование отчёта ===
         surname = self.fields["surname"].text().strip()
         name = self.fields["name"].text().strip()
         patronymic = self.fields["patronymic"].text().strip()
+        full_name = (
+            UNKNOWN_STATUS
+            if not (surname or name or patronymic)
+            else " ".join(filter(None, [surname, name, patronymic])).title()
+        )
 
-        # Правило для ФИО: если все пустые — "Не указано", иначе объединяем
-        if surname == "" and name == "" and patronymic == "":
-            full_name = "Не указано"
-        else:
-            parts = [surname, name, patronymic]
-            full_name = " ".join(
-                part for part in parts if part
-            )  # убираем лишние пробелы
-            full_name = full_name.title()
-
-        if self.not_specified_radio.isChecked():
-            gender = "Не указано"
-        elif self.male_radio.isChecked():
-            gender = "Мужской"
-        else:
-            gender = "Женский"
-
-        dob_unknown = self.fields["dob_unknown"].isChecked()
-        study_date_unknown = self.fields["study_date_unknown"].isChecked()
+        gender = UNKNOWN_STATUS
+        if self.radio_male.isChecked():
+            gender = GENDER_MALE
+        elif self.radio_female.isChecked():
+            gender = GENDER_FEMALE
 
         dob_str = (
-            "Не указано"
-            if dob_unknown
-            else self.dob_edit.date().toString("dd.MM.yyyy")
+            UNKNOWN_STATUS
+            if self.fields["dob_unknown"].isChecked()
+            else self.dob_edit.date().toString(DATE_FORMAT)
         )
-        study_date_str = (
-            "Не указано"
-            if study_date_unknown
-            else self.study_date_edit.date().toString("dd.MM.yyyy")
+        study_str = (
+            UNKNOWN_STATUS
+            if self.fields["study_date_unknown"].isChecked()
+            else self.study_date_edit.date().toString(DATE_FORMAT)
         )
-        if dob_unknown or study_date_unknown:
-            age_str = "Не указано"
-        else:
-            age = self.calculate_age(
-                self.dob_edit.date(), self.study_date_edit.date()
-            )
-            age_str = f"{age} лет"
+        age_str = (
+            UNKNOWN_STATUS
+            if self.fields["dob_unknown"].isChecked()
+            or self.fields["study_date_unknown"].isChecked()
+            else f"{self.calculate_age(self.dob_edit.date(), self.study_date_edit.date())} лет"
+        )
 
-        # Убираем символ '*' из описаний
-        d_dimer_label = D_DIMER_DESCRIPTION[0].replace(" *", "")
-        interleukins_label = INTERLEUKINS_DESCRIPTION[0].replace(" *", "")
-        lymphocytes_label = LYMPHOCYTES_DESCRIPTION[0].replace(" *", "")
+        # Обработка КТ: либо число, либо "Не указано"
+        ct_text = self.fields["ct_percent"].text().strip()
+        ct_str = (
+            UNKNOWN_STATUS
+            if not ct_text
+            else f"{int(float(ct_text.replace(',', '.')))} %"
+        )
 
         self.full_report = (
-            f"Пациент: {full_name.title()}\n"
-            f"Пол: {gender}\n"
-            f"Дата рождения: {dob_str}\n"
-            f"Возраст на момент исследования: {age_str}\n"
-            f"Дата исследования: {study_date_str}\n"
-            f"\n"
-            f"CITI-индекс: {citi:,.0f}\n"
-            f"Интерпретация: {risk_level}{extra_warning}\n"
-            f"{d_dimer_label}: {d_dimer} нг/мл\n"
-            f"{interleukins_label}: {interleukins} пг/мл\n"
-            f"{lymphocytes_label}: {lymphocytes} ×10⁹/л"
+            f"Пациент: {full_name}\n"
+            f"{GENDER}: {gender}\n"
+            f"{BIRTH_DATE}: {dob_str}\n"
+            f"{AGE}: {age_str}\n"
+            f"{RESEARCH_DATE}: {study_str}\n\n"
+            f"{D_DIMER_DESC[0].replace(' *', '')}: {d_dimer} нг/мл\n"
+            f"{INTERLEUKINS_DESC[0].replace(' *', '')}: {interleukins} пг/мл\n"
+            f"{LYMPHOCYTES_DESC[0].replace(' *', '')}: {lymphocytes} ×10⁹/л\n"
+            f"{CT_PERCENT_DESC[0]}: {ct_str}\n"
+            f"TINI-индекс: {tini:,.0f}\n"
+            f"Интерпретация: {risk}{extra}\n"
         )
 
-    def show_error(self, message: str):
-        """Показывает ошибку в стиле инструкции (как 'Введите все обязательные поля')."""
-        self.instruction_label.setText(message)
+        # Активация кнопок
+        for btn in [self.reset_btn, self.copy_btn, self.pdf_btn]:
+            btn.setEnabled(True)
+
+    def show_error(self, msg: str):
+        """
+        Отображает сообщение об ошибке в области инструкции и
+        скрывает результаты расчёта.
+        Отключает кнопки экспорта, чтобы
+        предотвратить сохранение некорректных данных.
+        """
+        self.instruction_label.setText(msg)
         self.instruction_label.show()
-        # Скрываем результаты расчёта
         self.result_value.hide()
         self.risk_label.hide()
-        # Отключаем кнопки экспорта
         self.copy_btn.setEnabled(False)
         self.pdf_btn.setEnabled(False)
 
     def reset_form(self):
-        """Сбрасывает всё к стартовому состоянию."""
-        # Скрываем результаты
-        self.result_value.hide()
-        self.risk_label.hide()
-
-        # Сбрасываем кнопки
-        self.calculate_btn.setEnabled(False)
-        self.reset_btn.setEnabled(False)
-        self.copy_btn.setEnabled(False)
-        self.pdf_btn.setEnabled(False)
-
-        # Очищаем все поля
+        """
+        Сбрасывает все поля формы к начальному состоянию.
+        Очищает текстовые поля, сбрасывает радиокнопки и чекбоксы,
+        скрывает результаты расчёта, восстанавливает инструкцию и
+        деактивирует все кнопки, кроме 'Выполнить расчёт' (которая
+        будет обновлена через вызов on_input_changed).
+        """
         for key in ("surname", "name", "patronymic"):
             self.fields[key].clear()
-
-        self.not_specified_radio.setChecked(True)
-
-        self.dob_unknown_checkbox.setChecked(True)
-        self.study_date_unknown_checkbox.setChecked(True)
+        self.radio_not_specified.setChecked(True)
+        self.dob_unknown.setChecked(True)
+        self.study_date_unknown.setChecked(True)
         self.age_display.setText("—")
-
         for key in ("d_dimer", "interleukins", "lymphocytes", "ct_percent"):
             self.fields[key].clear()
-
-        # Восстанавливаем надпись
-        self.instruction_label.setText("Введите все обязательные поля (*)")
+        self.result_value.hide()
+        self.risk_label.hide()
+        self.instruction_label.setText(INSTRUCTION_DEFAULT)
         self.instruction_label.show()
-
-        # Убираем full_report (чтобы не остался старый)
-        if hasattr(self, "full_report"):
-            delattr(self, "full_report")
-
+        for btn in [self.reset_btn, self.copy_btn, self.pdf_btn]:
+            btn.setEnabled(False)
         self.on_input_changed()
 
     def copy_to_clipboard(self):
-        """
-        Копирует полный отчёт в буфер обмена системы.
-        """
-        clipboard = QApplication.clipboard()  # Получаем доступ к буферу
-        clipboard.setText(self.full_report)
-        # Показываем всплывающее окно с подтверждением
+        """Копирование в буфер обмена."""
+        QApplication.clipboard().setText(self.full_report)
         QMessageBox.information(
             self, "Копирование", "Отчёт скопирован в буфер обмена."
         )
 
     def save_to_pdf(self):
-        """
-        Сохраняет отчёт в PDF через Qt (без внешних библиотек).
-        """
-        # Проверка: есть ли что сохранять?
-        if not hasattr(self, "full_report") or not self.full_report.strip():
-            QMessageBox.warning(self, "Ошибка", "Нет данных для сохранения.")
-            return
-
-        # Открываем диалог выбора файла для сохранения
+        """Сохранение в pdf."""
         path, _ = QFileDialog.getSaveFileName(
-            self, "Сохранить отчёт в PDF", "", "PDF Files (*.pdf)"
+            self,
+            "Сохранить отчёт в PDF",
+            "",
+            "PDF Files (*.pdf)",
         )
-        if not path:  # Пользователь нажал "Отмена"
+        if not path:
             return
         if not path.lower().endswith(".pdf"):
             path += ".pdf"
 
-        # Настраиваем "принтер" для PDF
         printer = QPrinter(QPrinter.HighResolution)
         printer.setOutputFormat(QPrinter.PdfFormat)
         printer.setOutputFileName(path)
 
-        # ВАЖНО: Qt иногда ломает форматирование чисел из-за локали (особенно в РФ).
-        # Устанавливаем локаль "C" (стандартную), чтобы точки/запятые не путались при рендеринге.
-        try:
-            locale.setlocale(locale.LC_NUMERIC, "C")
-        except locale.Error:
-            pass  # если не удалось — продолжаем
-
-        # Создаём документ, который можно напечатать или сохранить
         doc = QTextDocument()
-        # Форматируем отчёт как HTML (просто для структуры и шрифта)
         html = (
-            "<h2>Отчёт: CITI Calculator</h2>"
+            "<h2>Отчёт: TINI Calculator</h2>"
             "<pre style='font-family: Consolas, monospace; font-size: 12pt;'>"
             + self.full_report.replace("\n", "<br>")
             + "</pre>"
         )
         doc.setHtml(html)
-        doc.print_(printer)  # Сохраняет в PDF
+        doc.print_(printer)
 
         QMessageBox.information(self, "Успешно", f"Отчёт сохранён:\n{path}")
 
-    def get_icon_path(self):
-        """Возвращает путь к иконке, работает как в .py, так и в .exe."""
-        if getattr(sys, "frozen", False):
-            # Запуск из .exe — иконка встроена в ресурсы
-            return ":/icon.ico"
-        else:
-            # Запуск из исходного кода
-            return os.path.join(os.path.dirname(__file__), "icon.ico")
-
 
 def main():
-    # QApplication — обязательный объект, управляющий GUI и событиями
+    load_dotenv()
+    debug_mode = os.getenv("DEBUG", "False").lower() == "true"
+    if debug_mode:
+        print("Программа запущена в режиме отладки")
+
+    setup_logger(debug_mode)
     app = QApplication(sys.argv)
-
-    # Устанавливаем общий шрифт для всего приложения
-    app.setFont(QFont(FONT, FONT_SIZE))
-
-    # Создаём и показываем главное окно
-    window = CITICalculatorApp()
-    window.show()  # Отображает окно (по умолчанию оно скрыто)
-
-    # Запускаем цикл обработки событий (ожидание действий пользователя)
-    # sys.exit(...) гарантирует, что код завершится с правильным кодом ОС
+    app.setFont(QFont(FONT_FAMILY, FONT_SIZE_BASE))
+    window = TINICalculatorApp()
+    window.show()
     sys.exit(app.exec())
 
 
 if __name__ == "__main__":
     main()
-
-
-"""
-Логи должны сохраняться в папку logs/ с разбивкой по датам.
-Каждый лог-файл — это простой текстовый файл с именем YYYY-MM-DD.log.
-Код логирования вынести в if __name__ == "__main__":, чтобы не мешал при импорте.
-дописать ридми
-доработать валидацию - можно вводить разные числа которые валидатор не ловит
-"""
-
-"""
-возможные фичи
-
-Сохранение истории расчётов (локально, без облака)
-Каждый расчёт сохраняется в ~/.ivc_calculator/history.json (или в AppData на Windows).
-В интерфейсе — кнопка «История» → мини-таблица (дата, CITI, возраст, КТ %).
-Можно копировать или экспортировать группу расчётов в PDF.
-
-Валидация единиц измерения (с подсказками)
-При фокусе на поле — показывать tooltip:
-«Д-димер: в нг/мл (не мкг/мл!). Норма: <500 нг/мл»
-Если введено значение >10 000 — показывать предупреждение: «Проверьте единицы измерения!»
-
-Настройка пороговых значений (через конфиг или GUI)
-Файл config.json с порогами:
-json
-1234
-{
-  "low_threshold": 100000,
-  "high_threshold": 500000
-}
-Приложение загружает его при старте; если отсутствует — создаёт с дефолтами.
-(Опционально) вкладка «Настройки» для редактирования без правки файлов.
-"""

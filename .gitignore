@@ -2,7 +2,8 @@ _DOCS/
 *.spec
 build/
 dist/
-*.ico
+icon.ico
+# logs/
 
 #vscode
 .vscode/
