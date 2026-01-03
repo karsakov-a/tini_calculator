@@ -3,29 +3,79 @@ from functools import partial
 from typing import Any, Dict
 
 from PySide6.QtCore import QDate, QRegularExpression, Qt
-from PySide6.QtGui import (QFont, QIntValidator, QRegularExpressionValidator,
-                           QTextDocument)
+from PySide6.QtGui import (
+    QFont,
+    QIntValidator,
+    QRegularExpressionValidator,
+    QTextDocument,
+)
 from PySide6.QtPrintSupport import QPrinter
-from PySide6.QtWidgets import (QApplication, QButtonGroup, QCheckBox,
-                               QDateEdit, QDialog, QFileDialog, QGroupBox,
-                               QHBoxLayout, QLabel, QLineEdit, QMainWindow,
-                               QMessageBox, QPushButton, QRadioButton,
-                               QVBoxLayout, QWidget)
+from PySide6.QtWidgets import (
+    QApplication,
+    QButtonGroup,
+    QCheckBox,
+    QDateEdit,
+    QDialog,
+    QFileDialog,
+    QGroupBox,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QMainWindow,
+    QMessageBox,
+    QPushButton,
+    QRadioButton,
+    QVBoxLayout,
+    QWidget,
+)
 
-from config import (AGE, APP_NAME, BIRTH_DATE, BUTTON_CALCULATE, BUTTON_COPY,
-                    BUTTON_RESET, BUTTON_SAVE_PDF, CT_PERCENT_DESC,
-                    D_DIMER_DESC, DATE_FORMAT, DECIMAL_PLACES,
-                    ERROR_MESSAGE_CT, FONT_FAMILY, FONT_SIZE_RESULT_MESSAGE,
-                    FONT_SIZE_RESULT_VALUE, FONT_SIZE_TITLE, FULL_NAME_PATTERN,
-                    FULL_NAME_PLACEHOLDER, GENDER, GENDER_FEMALE, GENDER_MALE,
-                    INSTRUCTION_DEFAULT, INTERLEUKINS_DESC, JOURNAL_BUTTON,
-                    LYMPHOCYTES_DESC, MAX_CT_PERCENT, MAX_NAME_LEN,
-                    MIN_CT_PERCENT, NAME_DESC, PATRONYMIC_DESC, RESEARCH_DATE,
-                    SURNAME_DESC, UNKNOWN_STATUS, WINDOW_SIZE)
-from core.calculator import (calculate_citi, get_interpretation_text,
-                             interpret_citi)
-from core.history import (build_full_report, create_history_entry,
-                          load_history, save_history)
+from config import (
+    AGE,
+    APP_NAME,
+    BIRTH_DATE,
+    BUTTON_CALCULATE,
+    BUTTON_COPY,
+    BUTTON_RESET,
+    BUTTON_SAVE_PDF,
+    CT_PERCENT_DESC,
+    D_DIMER_DESC,
+    DATE_FORMAT,
+    DECIMAL_PLACES,
+    ERROR_MESSAGE_CT,
+    FONT_FAMILY,
+    FONT_SIZE_RESULT_MESSAGE,
+    FONT_SIZE_RESULT_VALUE,
+    FONT_SIZE_TITLE,
+    FULL_NAME_PATTERN,
+    FULL_NAME_PLACEHOLDER,
+    GENDER,
+    GENDER_FEMALE,
+    GENDER_MALE,
+    INSTRUCTION_DEFAULT,
+    INTERLEUKINS_DESC,
+    JOURNAL_BUTTON,
+    LYMPHOCYTES_DESC,
+    MAX_CT_PERCENT,
+    MAX_NAME_LEN,
+    MIN_CT_PERCENT,
+    NAME_DESC,
+    PATRONYMIC_DESC,
+    RESEARCH_DATE,
+    SURNAME_DESC,
+    UNKNOWN_STATUS,
+    WINDOW_SIZE,
+)
+from core.calculator import (
+    calculate_citi,
+    get_interpretation_text,
+    interpret_citi,
+)
+from core.history import (
+    build_full_report,
+    create_history_entry,
+    load_history,
+    save_history,
+)
 from ui.history_dialog import HistoryDialog
 
 
