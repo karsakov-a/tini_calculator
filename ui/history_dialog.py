@@ -2,19 +2,40 @@ import logging
 from datetime import datetime
 from typing import Any, Dict, List
 
-from PySide6.QtWidgets import (QAbstractItemView, QDialog, QFileDialog,
-                               QHBoxLayout, QHeaderView, QMessageBox,
-                               QPushButton, QTableWidget, QTableWidgetItem,
-                               QVBoxLayout)
+from PySide6.QtWidgets import (
+    QAbstractItemView,
+    QDialog,
+    QFileDialog,
+    QHBoxLayout,
+    QHeaderView,
+    QMessageBox,
+    QPushButton,
+    QTableWidget,
+    QTableWidgetItem,
+    QVBoxLayout,
+)
 
-from config import (BIRTH_DATE, BUTTON_JOURNAL_CLOSE, BUTTON_JOURNAL_DELETE,
-                    BUTTON_JOURNAL_EXPORT_CSV, BUTTON_JOURNAL_OPEN,
-                    CT_PERCENT_DESC, D_DIMER_DESC,
-                    ERROR_EXPORT_HISTORY_GENERIC, ERROR_EXPORT_HISTORY_IO,
-                    GENDER, HISTORY_DIALOG_TITLE, INTERLEUKINS_DESC,
-                    LYMPHOCYTES_DESC, NAME_DESC, NO_HISTORY_MESSAGE,
-                    PATRONYMIC_DESC, RESEARCH_DATE, SURNAME_DESC,
-                    UNKNOWN_STATUS)
+from config import (
+    BIRTH_DATE,
+    BUTTON_JOURNAL_CLOSE,
+    BUTTON_JOURNAL_DELETE,
+    BUTTON_JOURNAL_EXPORT_CSV,
+    BUTTON_JOURNAL_OPEN,
+    CT_PERCENT_DESC,
+    D_DIMER_DESC,
+    ERROR_EXPORT_HISTORY_GENERIC,
+    ERROR_EXPORT_HISTORY_IO,
+    GENDER,
+    HISTORY_DIALOG_TITLE,
+    INTERLEUKINS_DESC,
+    LYMPHOCYTES_DESC,
+    NAME_DESC,
+    NO_HISTORY_MESSAGE,
+    PATRONYMIC_DESC,
+    RESEARCH_DATE,
+    SURNAME_DESC,
+    UNKNOWN_STATUS,
+)
 from core.history import load_history, save_history
 
 
