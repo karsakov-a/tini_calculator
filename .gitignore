@@ -4,6 +4,7 @@ build/
 dist/
 icon.ico
 logs/
+main copy.py
 
 #vscode
 .vscode/
