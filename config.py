@@ -3,7 +3,9 @@ from PySide6.QtCore import QDate
 # === Настройки приложения ===
 APP_NAME = "CITI Calculator"
 APP_TITLE = "CITI Calculator — Тромбо-воспалительный индекс"
-WINDOW_SIZE = (440, 400)
+MAIN_WINDOW_SIZE = (440, 400)
+JOURNAL_WINDOW_SIZE = (900, 500)
+
 FONT_FAMILY = "Segoe UI"
 FONT_SIZE_BASE = 10
 FONT_SIZE_TITLE = 14
@@ -31,6 +33,8 @@ MAX_DATE = QDate.currentDate()
 DEFAULT_DATE_BORN = QDate(1985, 1, 1)
 DEFAULT_DATE_RESEARCH = QDate.currentDate()
 DATE_FORMAT = "dd.MM.yyyy"
+DATE_FORMAT_JORNAL = "%d.%m.%Y %H:%M"
+DATE_FORMAT_LOGS = "%Y-%m-%d"
 
 # === Сообщения и надписи ===
 DEBUG_MODE_ON = "Программа запущена в режиме отладки"
@@ -39,7 +43,6 @@ ERROR_MESSAGE_CT = (
 )
 ERROR_EXPORT_HISTORY_IO = "Не удалось сохранить файл истории:\n{}"
 ERROR_EXPORT_HISTORY_GENERIC = "Неизвестная ошибка при экспорте истории:\n{}"
-ERROR_LOAD_ENTRY_DATE = "Некорректный формат даты в записи: {}"
 ERROR_LOAD_HISTORY = "Ошибка загрузки истории: {}"
 ERROR_SAVE_HISTORY = "Ошибка сохранения истории:\n{}"
 INSTRUCTION_DEFAULT = "Введите все обязательные поля (*)"
@@ -86,8 +89,6 @@ GENDER_FEMALE = "Женский"
 
 # === История расчётов ===
 HISTORY_FILENAME = "citi_history.json"
-EXPORT_CSV_FILENAME = "citi_history_export.csv"
-EXPORT_HISTORY_BUTTON_TEXT = "Экспортировать историю"
 HISTORY_DIALOG_TITLE = "Журнал расчётов CITI"
 NO_HISTORY_MESSAGE = "История расчётов пуста."
 

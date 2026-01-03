@@ -1,4 +1,3 @@
-# ui/main_window.py
 from functools import partial
 from typing import Any, Dict
 
@@ -63,7 +62,12 @@ from config import (
     RESEARCH_DATE,
     SURNAME_DESC,
     UNKNOWN_STATUS,
-    WINDOW_SIZE,
+    MAIN_WINDOW_SIZE,
+    ERROR_SAVE_HISTORY,
+    MIN_DATE,
+    MAX_DATE,
+    DEFAULT_DATE_BORN,
+    DEFAULT_DATE_RESEARCH,
 )
 from core.calculator import (
     calculate_citi,
@@ -92,7 +96,7 @@ class CITICalculatorApp(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle(APP_NAME)
-        self.resize(*WINDOW_SIZE)
+        self.resize(*MAIN_WINDOW_SIZE)
 
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
@@ -157,8 +161,8 @@ class CITICalculatorApp(QMainWindow):
         self.dob_edit = QDateEdit()
         self.dob_edit.setCalendarPopup(True)
         self.dob_edit.setDisplayFormat(DATE_FORMAT)
-        self.dob_edit.setDateRange(QDate(1920, 1, 1), QDate.currentDate())
-        self.dob_edit.setDate(QDate(1985, 1, 1))
+        self.dob_edit.setDateRange(MIN_DATE, MAX_DATE)
+        self.dob_edit.setDate(DEFAULT_DATE_BORN)
         self.dob_edit.setEnabled(False)
         self.dob_unknown.toggled.connect(
             partial(self.toggle_date_input, self.dob_edit)
@@ -197,10 +201,8 @@ class CITICalculatorApp(QMainWindow):
         self.study_date_edit = QDateEdit()
         self.study_date_edit.setCalendarPopup(True)
         self.study_date_edit.setDisplayFormat(DATE_FORMAT)
-        self.study_date_edit.setDateRange(
-            QDate(1920, 1, 1), QDate.currentDate()
-        )
-        self.study_date_edit.setDate(QDate.currentDate())
+        self.study_date_edit.setDateRange(MIN_DATE, MAX_DATE)
+        self.study_date_edit.setDate(DEFAULT_DATE_RESEARCH)
         self.study_date_edit.setEnabled(False)
         self.study_date_unknown.toggled.connect(
             partial(self.toggle_date_input, self.study_date_edit)
@@ -321,11 +323,11 @@ class CITICalculatorApp(QMainWindow):
         except ValueError:
             return default
 
-    def toggle_date_input(self, date_edit: QDateEdit, checked: bool):
+    def toggle_date_input(self, date_edit, checked):
         date_edit.setEnabled(not checked)
         self.on_input_changed()
 
-    def calculate_age(self, birth: QDate, study: QDate) -> int:
+    def calculate_age(self, birth, study):
         if not birth.isValid() or not study.isValid():
             return 0
         years = study.year() - birth.year()
@@ -465,10 +467,8 @@ class CITICalculatorApp(QMainWindow):
             current_history = load_history()
             current_history.append(history_entry)
             save_history(current_history)
-        except Exception as e:
-            QMessageBox.critical(
-                self, "Ошибка", f"Не удалось сохранить историю:\n{e}"
-            )
+        except (OSError, IOError) as e:
+            QMessageBox.critical(self, (ERROR_SAVE_HISTORY).format(e))
 
         # Активация кнопок
         for btn in [self.reset_btn, self.copy_btn, self.pdf_btn]:

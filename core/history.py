@@ -3,10 +3,19 @@ import logging
 from datetime import datetime
 from typing import Any, Dict, List
 
-from config import (AGE, BIRTH_DATE, CT_PERCENT_DESC, D_DIMER_DESC,
-                    ERROR_LOAD_HISTORY, ERROR_SAVE_HISTORY, GENDER,
-                    INTERLEUKINS_DESC, LYMPHOCYTES_DESC, RESEARCH_DATE,
-                    UNKNOWN_STATUS)
+from config import (
+    AGE,
+    BIRTH_DATE,
+    CT_PERCENT_DESC,
+    D_DIMER_DESC,
+    ERROR_LOAD_HISTORY,
+    ERROR_SAVE_HISTORY,
+    GENDER,
+    INTERLEUKINS_DESC,
+    LYMPHOCYTES_DESC,
+    RESEARCH_DATE,
+    UNKNOWN_STATUS,
+)
 from core.calculator import get_interpretation_text
 from utils.paths import get_history_file_path
 

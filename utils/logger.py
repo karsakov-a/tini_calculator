@@ -2,6 +2,8 @@ import logging
 from datetime import datetime
 from pathlib import Path
 
+from config import DATE_FORMAT_LOGS
+
 
 def setup_logger(debug: bool = False):
     """
@@ -9,7 +11,7 @@ def setup_logger(debug: bool = False):
     """
     logs_dir = Path("logs")
     logs_dir.mkdir(exist_ok=True)
-    log_file = logs_dir / f"{datetime.now().strftime('%Y-%m-%d')}.log"
+    log_file = logs_dir / f"{datetime.now().strftime(DATE_FORMAT_LOGS)}.log"
     logging.basicConfig(
         level=logging.DEBUG if debug else logging.INFO,
         format="%(asctime)s - %(levelname)s - %(message)s",

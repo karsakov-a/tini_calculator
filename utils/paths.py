@@ -1,6 +1,8 @@
 import sys
 from pathlib import Path
 
+from config import HISTORY_FILENAME
+
 
 def get_app_dir() -> Path:
     """
@@ -18,4 +20,4 @@ def get_history_file_path() -> Path:
     """
     Возвращает полный путь к файлу истории.
     """
-    return get_app_dir() / "citi_history.json"
+    return get_app_dir() / HISTORY_FILENAME

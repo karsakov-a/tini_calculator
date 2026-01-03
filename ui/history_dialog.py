@@ -35,6 +35,8 @@ from config import (
     RESEARCH_DATE,
     SURNAME_DESC,
     UNKNOWN_STATUS,
+    JOURNAL_WINDOW_SIZE,
+    DATE_FORMAT_JORNAL,
 )
 from core.history import load_history, save_history
 
@@ -43,7 +45,7 @@ class HistoryDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle(HISTORY_DIALOG_TITLE)
-        self.resize(900, 500)
+        self.resize(*JOURNAL_WINDOW_SIZE)
         self.history: List[Dict[str, Any]] = load_history()
         self.selected_entry = None
 
@@ -95,7 +97,7 @@ class HistoryDialog(QDialog):
         self.table.setRowCount(len(self.history))
         for row, entry in enumerate(self.history):
             timestamp = datetime.fromisoformat(entry["timestamp"])
-            save_date_str = timestamp.strftime("%d.%m.%Y %H:%M")
+            save_date_str = timestamp.strftime(DATE_FORMAT_JORNAL)
 
             raw = entry["raw_data"]
             surname = raw.get(SURNAME_DESC[1], "").strip()

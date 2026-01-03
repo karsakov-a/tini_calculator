@@ -1,6 +1,14 @@
-from config import (CITI_HIGH_THRESHOLD, CITI_LOW_THRESHOLD, COLOR_HIGH,
-                    COLOR_LOW, COLOR_MODERATE, EXTRA_WARNING_CT_CITI,
-                    RISK_HIGH, RISK_LOW, RISK_MODERATE)
+from config import (
+    CITI_HIGH_THRESHOLD,
+    CITI_LOW_THRESHOLD,
+    COLOR_HIGH,
+    COLOR_LOW,
+    COLOR_MODERATE,
+    EXTRA_WARNING_CT_CITI,
+    RISK_HIGH,
+    RISK_LOW,
+    RISK_MODERATE,
+)
 
 
 def calculate_citi(
@@ -27,8 +35,8 @@ def interpret_citi(citi: float):
 
 def get_interpretation_text(citi: float, ct_percent: float) -> str:
     """
-    Возвращает полный текст интерпретации, включая дополнительное предупреждение,
-    если применимо (CITI > 500_000 и КТ > 70%).
+    Возвращает полный текст интерпретации, включая дополнительное
+    предупреждение, если применимо (CITI > 500_000 и КТ > 70%).
     """
     risk, _ = interpret_citi(citi)
     if citi > CITI_HIGH_THRESHOLD and ct_percent > 70:
