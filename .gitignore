@@ -3,7 +3,8 @@ _DOCS/
 build/
 dist/
 icon.ico
-# logs/
+logs/
+main copy.py
 
 #vscode
 .vscode/
