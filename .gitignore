@@ -3,7 +3,7 @@ _DOCS/
 build/
 dist/
 icon.ico
-# logs/
+logs/
 
 #vscode
 .vscode/

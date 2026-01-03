@@ -1,9 +1,11 @@
 import logging
 import os
 import sys
+import json
 from datetime import datetime
 from functools import partial
 from pathlib import Path
+from typing import List, Dict, Any
 
 from dotenv import load_dotenv
 from PySide6.QtCore import QDate, QRegularExpression, Qt
@@ -30,11 +32,16 @@ from PySide6.QtWidgets import (
     QRadioButton,
     QVBoxLayout,
     QWidget,
+    QDialog,
+    QTableWidget,
+    QTableWidgetItem,
+    QHeaderView,
+    QAbstractItemView,
 )
 
 # === Настройки приложения ===
-APP_NAME = "TINI Calculator"
-APP_TITLE = "TINI Calculator — Тромбо-воспалительный индекс"
+APP_NAME = "CITI Calculator"
+APP_TITLE = "CITI Calculator — Тромбо-воспалительный индекс"
 WINDOW_SIZE = (440, 400)
 FONT_FAMILY = "Segoe UI"
 FONT_SIZE_BASE = 10
@@ -54,8 +61,8 @@ MIN_CT_PERCENT = 0
 MAX_CT_PERCENT = 100
 
 # === Пороги интерпретации ===
-TINI_LOW_THRESHOLD = 100_000
-TINI_HIGH_THRESHOLD = 500_000
+CITI_LOW_THRESHOLD = 100_000
+CITI_HIGH_THRESHOLD = 500_000
 
 # === Даты ===
 MIN_DATE = QDate(1920, 1, 1)
@@ -65,18 +72,25 @@ DEFAULT_DATE_RESEARCH = QDate.currentDate()
 DATE_FORMAT = "dd.MM.yyyy"
 
 # === Сообщения и надписи ===
+DEBUG_MODE_ON = "Программа запущена в режиме отладки"
 ERROR_MESSAGE_CT = (
     "Объем поражения лёгких должен быть целым числом от 0 до 100"
 )
+ERROR_EXPORT_HISTORY_IO = "Не удалось сохранить файл истории:\n{}"
+ERROR_EXPORT_HISTORY_GENERIC = "Неизвестная ошибка при экспорте истории:\n{}"
+ERROR_LOAD_ENTRY_DATE = "Некорректный формат даты в записи: {}"
+ERROR_LOAD_HISTORY = "Ошибка загрузки истории: {}"
+ERROR_SAVE_HISTORY = "Ошибка сохранения истории:\n{}"
 INSTRUCTION_DEFAULT = "Введите все обязательные поля (*)"
-EXTRA_WARNING_CT_TINI = (
-    "\n⚠️ При TINI более 500 000 и КТ более 70%\nриск смерти превышает 95%"
+EXTRA_WARNING_CT_CITI = (
+    "\n⚠️ При CITI более 500 000 и КТ более 70%\nриск смерти превышает 95%"
 )
 
 # Поля ввода: (метка, ключ, placeholder)
 SURNAME_DESC = ("Фамилия", "surname")
 NAME_DESC = ("Имя", "name")
 PATRONYMIC_DESC = ("Отчество", "patronymic")
+GENDER = "Пол"
 D_DIMER_DESC = (
     "D-димер (нг/мл) *",
     "d_dimer",
@@ -97,7 +111,6 @@ CT_PERCENT_DESC = (
     "ct_percent",
     f"от {MIN_CT_PERCENT} до {MAX_CT_PERCENT}",
 )
-GENDER = "Пол"
 BIRTH_DATE = "Дата рождения"
 AGE = "Возраст на момент исследования"
 RESEARCH_DATE = "Дата исследования"
@@ -110,11 +123,24 @@ UNKNOWN_STATUS = "Не указано"
 GENDER_MALE = "Мужской"
 GENDER_FEMALE = "Женский"
 
+# === История расчётов ===
+HISTORY_FILENAME = "citi_history.json"
+EXPORT_CSV_FILENAME = "citi_history_export.csv"
+EXPORT_HISTORY_BUTTON_TEXT = "Экспортировать историю"
+HISTORY_DIALOG_TITLE = "Журнал расчётов CITI"
+NO_HISTORY_MESSAGE = "История расчётов пуста."
+
 # === Тексты кнопок ===
 BUTTON_CALCULATE = "ВЫПОЛНИТЬ РАСЧЁТ"
 BUTTON_RESET = "Сбросить"
 BUTTON_COPY = "Скопировать отчёт"
 BUTTON_SAVE_PDF = "Сохранить в PDF"
+JOURNAL_BUTTON = "Журнал"
+
+BUTTON_JOURNAL_OPEN = "Открыть"
+BUTTON_JOURNAL_DELETE = "Удалить"
+BUTTON_JOURNAL_EXPORT_CSV = "Экспортировать в CSV"
+BUTTON_JOURNAL_CLOSE = "Закрыть"
 
 # === Интерпретация ===
 RISK_LOW = "Низкий риск смерти"
@@ -125,22 +151,80 @@ COLOR_MODERATE = "#FFC107"
 COLOR_HIGH = "#F44336"
 
 
-def calculate_tini(
+def calculate_citi(
     d_dimer: float, interleukins: float, lymphocytes: float
 ) -> float:
-    """Вычисляет TINI-индекс с защитой от деления на ноль."""
+    """Вычисляет CITI-индекс с защитой от деления на ноль."""
     denominator = lymphocytes if lymphocytes > 0 else 0.1
     return (d_dimer * interleukins) / denominator
 
 
-def interpret_tini(tini: float):
-    """Возвращает уровень риска и цвет по значению TINI."""
-    if tini < TINI_LOW_THRESHOLD:
+def interpret_citi(citi: float):
+    """Возвращает уровень риска и цвет по значению CITI."""
+    if citi < CITI_LOW_THRESHOLD:
         return RISK_LOW, COLOR_LOW
-    elif tini <= TINI_HIGH_THRESHOLD:
+    elif citi <= CITI_HIGH_THRESHOLD:
         return RISK_MODERATE, COLOR_MODERATE
     else:
         return RISK_HIGH, COLOR_HIGH
+
+
+# === Формирование отчёта ===
+def get_app_dir() -> Path:
+    """Возвращает путь к папке, где находится исполняемый файл."""
+    if getattr(sys, "frozen", False):
+        # Запуск из .exe (PyInstaller)
+        return Path(sys.executable).parent
+    else:
+        # Запуск из исходного кода
+        return Path(__file__).parent.resolve()
+
+
+def get_history_file_path() -> Path:
+    """Возвращает полный путь к файлу истории."""
+    return get_app_dir() / HISTORY_FILENAME
+
+
+def load_history() -> List[Dict[str, Any]]:
+    """Загружает историю из JSON-файла."""
+    history_file = get_history_file_path()
+    if not history_file.exists():
+        return []
+    try:
+        with open(history_file, "r", encoding="utf-8") as f:
+            data = json.load(f)
+            return data if isinstance(data, list) else []
+    except (json.JSONDecodeError, IOError) as e:
+        logging.error(ERROR_LOAD_HISTORY.format(e))
+        return []
+
+
+def save_history(history: List[Dict[str, Any]]):
+    """Сохраняет историю в JSON-файл."""
+    history_file = get_history_file_path()
+    try:
+        with open(history_file, "w", encoding="utf-8") as f:
+            json.dump(history, f, ensure_ascii=False, indent=2)
+    except IOError as e:
+        logging.error(ERROR_SAVE_HISTORY.format(e))
+        QMessageBox.critical(
+            None,
+            "Ошибка",
+            ERROR_SAVE_HISTORY.format(e),
+        )
+
+
+def create_history_entry(
+    full_report: str, raw_data: Dict[str, Any]
+) -> Dict[str, Any]:
+    """Создаёт запись для истории на основе расчёта."""
+    return {
+        "id": datetime.now().strftime("%Y%m%d_%H%M%S")
+        + f"_{hash(full_report) % 10000:04d}",
+        "timestamp": datetime.now().isoformat(),
+        "full_report": full_report,
+        "raw_data": raw_data,
+    }
 
 
 def create_float_regex(
@@ -162,10 +246,10 @@ def setup_logger(debug: bool = False):
         format="%(asctime)s - %(levelname)s - %(message)s",
         handlers=[logging.FileHandler(log_file, encoding="utf-8")],
     )
-    logging.info("Запуск TINI Calculator")
+    logging.info("Запуск CITI Calculator")
 
 
-class TINICalculatorApp(QMainWindow):
+class CITICalculatorApp(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle(APP_TITLE)
@@ -300,17 +384,17 @@ class TINICalculatorApp(QMainWindow):
             line_edit = QLineEdit()
             line_edit.setPlaceholderText(desc[2])
             key = desc[1]
-            if key in ("d_dimer", "interleukins"):
+            if key in (D_DIMER_DESC[1], INTERLEUKINS_DESC[1]):
                 regex = create_float_regex(5, DECIMAL_PLACES)
                 line_edit.setValidator(
                     QRegularExpressionValidator(QRegularExpression(regex))
                 )
-            elif key == "lymphocytes":
+            elif key == LYMPHOCYTES_DESC[1]:
                 regex = create_float_regex(2, DECIMAL_PLACES)
                 line_edit.setValidator(
                     QRegularExpressionValidator(QRegularExpression(regex))
                 )
-            elif key == "ct_percent":
+            elif key == CT_PERCENT_DESC[1]:
                 line_edit.setValidator(
                     QIntValidator(MIN_CT_PERCENT, MAX_CT_PERCENT)
                 )
@@ -323,8 +407,8 @@ class TINICalculatorApp(QMainWindow):
         study_group.setLayout(study_layout)
         layout.addWidget(study_group)
 
-        # === Блок 3: Результат TINI ===
-        result_group = QGroupBox("Результат TINI")
+        # === Блок 3: Результат CITI ===
+        result_group = QGroupBox("Результат CITI")
         result_group.setAlignment(Qt.AlignCenter)
         result_layout = QVBoxLayout()
 
@@ -370,6 +454,12 @@ class TINICalculatorApp(QMainWindow):
         btn_row2.addWidget(self.copy_btn)
         btn_row2.addWidget(self.pdf_btn)
 
+        # === Кнопка журнала ===
+        journal_btn = QPushButton(JOURNAL_BUTTON)
+        journal_btn.clicked.connect(self.open_history_journal)
+        layout.addWidget(journal_btn)
+
+        # === Расположение кнопок ===
         result_layout.addLayout(btn_row1)
         result_layout.addLayout(btn_row2)
 
@@ -414,7 +504,7 @@ class TINICalculatorApp(QMainWindow):
 
     def is_ct_valid(self) -> bool:
         """Проверяет, что КТ — целое число от 0 до 100."""
-        text = self.fields["ct_percent"].text().strip()
+        text = self.fields[CT_PERCENT_DESC[1]].text().strip()
         if not text:
             return True
         try:
@@ -447,9 +537,9 @@ class TINICalculatorApp(QMainWindow):
             self.age_display.setText("—")
 
         # Проверка обязательных полей
-        d_dimer = self.get_float("d_dimer")
-        interleukins = self.get_float("interleukins")
-        lymphocytes = self.get_float("lymphocytes")
+        d_dimer = self.get_float(D_DIMER_DESC[1])
+        interleukins = self.get_float(INTERLEUKINS_DESC[1])
+        lymphocytes = self.get_float(LYMPHOCYTES_DESC[1])
         all_filled = d_dimer > 0 and interleukins > 0 and lymphocytes > 0
 
         self.instruction_label.setText(INSTRUCTION_DEFAULT)
@@ -460,9 +550,9 @@ class TINICalculatorApp(QMainWindow):
 
     def on_calculate(self):
         """Основная логика."""
-        d_dimer = self.get_float("d_dimer")
-        interleukins = self.get_float("interleukins")
-        lymphocytes = self.get_float("lymphocytes")
+        d_dimer = self.get_float(D_DIMER_DESC[1])
+        interleukins = self.get_float(INTERLEUKINS_DESC[1])
+        lymphocytes = self.get_float(LYMPHOCYTES_DESC[1])
 
         if not (d_dimer > 0 and interleukins > 0 and lymphocytes > 0):
             return
@@ -473,16 +563,17 @@ class TINICalculatorApp(QMainWindow):
             return
 
         # Расчёт
-        tini = calculate_tini(d_dimer, interleukins, lymphocytes)
-        risk, color = interpret_tini(tini)
+        citi = calculate_citi(d_dimer, interleukins, lymphocytes)
+        risk, color = interpret_citi(citi)
 
         extra = (
-            EXTRA_WARNING_CT_TINI
-            if self.get_float("ct_percent") > 70 and tini > TINI_HIGH_THRESHOLD
+            EXTRA_WARNING_CT_CITI
+            if self.get_float(CT_PERCENT_DESC[1]) > 70
+            and citi > CITI_HIGH_THRESHOLD
             else ""
         )
 
-        self.result_value.setText(f"{tini:,.0f}")
+        self.result_value.setText(f"{citi:,.0f}")
         self.result_value.setStyleSheet(f"color: {color}; font-weight: bold;")
         self.risk_label.setText(risk + extra)
         self.risk_label.setStyleSheet(f"color: {color};")
@@ -491,7 +582,7 @@ class TINICalculatorApp(QMainWindow):
         self.risk_label.show()
 
         # === Формирование отчёта ===
-        surname = self.fields["surname"].text().strip()
+        surname = self.fields[SURNAME_DESC[1]].text().strip()
         name = self.fields["name"].text().strip()
         patronymic = self.fields["patronymic"].text().strip()
         full_name = (
@@ -524,7 +615,7 @@ class TINICalculatorApp(QMainWindow):
         )
 
         # Обработка КТ: либо число, либо "Не указано"
-        ct_text = self.fields["ct_percent"].text().strip()
+        ct_text = self.fields[CT_PERCENT_DESC[1]].text().strip()
         ct_str = (
             UNKNOWN_STATUS
             if not ct_text
@@ -541,9 +632,29 @@ class TINICalculatorApp(QMainWindow):
             f"{INTERLEUKINS_DESC[0].replace(' *', '')}: {interleukins} пг/мл\n"
             f"{LYMPHOCYTES_DESC[0].replace(' *', '')}: {lymphocytes} ×10⁹/л\n"
             f"{CT_PERCENT_DESC[0]}: {ct_str}\n"
-            f"TINI-индекс: {tini:,.0f}\n"
+            f"CITI-индекс: {citi:,.0f}\n"
             f"Интерпретация: {risk}{extra}\n"
         )
+
+        # === Сохранение в историю ===
+        raw_data = {
+            SURNAME_DESC[1]: surname,
+            NAME_DESC[1]: name,
+            PATRONYMIC_DESC[1]: patronymic,
+            GENDER: gender,
+            "dob": dob_str,
+            "study_date": study_str,
+            D_DIMER_DESC[1]: d_dimer,
+            INTERLEUKINS_DESC[1]: interleukins,
+            LYMPHOCYTES_DESC[1]: lymphocytes,
+            CT_PERCENT_DESC[1]: ct_str,
+            "citi": citi,
+            "risk": risk,
+        }
+        history_entry = create_history_entry(self.full_report, raw_data)
+        current_history = load_history()
+        current_history.append(history_entry)
+        save_history(current_history)
 
         # Активация кнопок
         for btn in [self.reset_btn, self.copy_btn, self.pdf_btn]:
@@ -571,13 +682,18 @@ class TINICalculatorApp(QMainWindow):
         деактивирует все кнопки, кроме 'Выполнить расчёт' (которая
         будет обновлена через вызов on_input_changed).
         """
-        for key in ("surname", "name", "patronymic"):
+        for key in (SURNAME_DESC[1], NAME_DESC[1], PATRONYMIC_DESC[1]):
             self.fields[key].clear()
         self.radio_not_specified.setChecked(True)
         self.dob_unknown.setChecked(True)
         self.study_date_unknown.setChecked(True)
         self.age_display.setText("—")
-        for key in ("d_dimer", "interleukins", "lymphocytes", "ct_percent"):
+        for key in (
+            D_DIMER_DESC[1],
+            INTERLEUKINS_DESC[1],
+            LYMPHOCYTES_DESC[1],
+            CT_PERCENT_DESC[1],
+        ):
             self.fields[key].clear()
         self.result_value.hide()
         self.risk_label.hide()
@@ -613,7 +729,7 @@ class TINICalculatorApp(QMainWindow):
 
         doc = QTextDocument()
         html = (
-            "<h2>Отчёт: TINI Calculator</h2>"
+            "<h2>Отчёт: CITI Calculator</h2>"
             "<pre style='font-family: Consolas, monospace; font-size: 12pt;'>"
             + self.full_report.replace("\n", "<br>")
             + "</pre>"
@@ -623,17 +739,286 @@ class TINICalculatorApp(QMainWindow):
 
         QMessageBox.information(self, "Успешно", f"Отчёт сохранён:\n{path}")
 
+    def open_history_journal(self):
+        """Открывает диалог журнала."""
+        dialog = HistoryDialog(self)
+        if dialog.exec() == QDialog.Accepted and dialog.selected_entry:
+            self.load_entry_to_form(dialog.selected_entry)
+
+    def load_entry_to_form(self, entry: Dict[str, Any]):
+        """Загружает запись из истории в форму."""
+        d = entry["raw_data"]
+
+        self.fields[SURNAME_DESC[1]].setText(d.get(SURNAME_DESC[1], ""))
+        self.fields[NAME_DESC[1]].setText(d.get(NAME_DESC[1], ""))
+        self.fields[PATRONYMIC_DESC[1]].setText(d.get(PATRONYMIC_DESC[1], ""))
+
+        gender = d.get("gender", UNKNOWN_STATUS)
+        if gender == GENDER_MALE:
+            self.radio_male.setChecked(True)
+        elif gender == GENDER_FEMALE:
+            self.radio_female.setChecked(True)
+        else:
+            self.radio_not_specified.setChecked(True)
+
+        # Дата рождения
+        dob = d.get("dob", UNKNOWN_STATUS)
+        if dob == UNKNOWN_STATUS:
+            self.dob_unknown.setChecked(True)
+        else:
+            self.dob_unknown.setChecked(False)
+            qdate = QDate.fromString(dob, DATE_FORMAT)
+            if qdate.isValid():
+                self.dob_edit.setDate(qdate)
+            else:
+                logging.warning(ERROR_LOAD_ENTRY_DATE.format(dob))
+                self.dob_unknown.setChecked(True)  # Возвращаем в "Не указано"
+
+        # Дата исследования
+        study = d.get("study_date", UNKNOWN_STATUS)
+        if study == UNKNOWN_STATUS:
+            self.study_date_unknown.setChecked(True)
+        else:
+            self.study_date_unknown.setChecked(False)
+            qdate = QDate.fromString(study, DATE_FORMAT)
+            if qdate.isValid():
+                self.study_date_edit.setDate(qdate)
+            else:
+                logging.warning(ERROR_LOAD_ENTRY_DATE.format(study))
+                self.study_date_unknown.setChecked(True)
+
+        self.fields[D_DIMER_DESC[1]].setText(str(d.get(D_DIMER_DESC[1], "")))
+        self.fields[INTERLEUKINS_DESC[1]].setText(
+            str(d.get(INTERLEUKINS_DESC[1], ""))
+        )
+        self.fields[LYMPHOCYTES_DESC[1]].setText(
+            str(d.get(LYMPHOCYTES_DESC[1], ""))
+        )
+        ct_val = d.get(CT_PERCENT_DESC[1], UNKNOWN_STATUS)
+        if ct_val != UNKNOWN_STATUS:
+            # Убираем " %" из строки
+            ct_clean = ct_val.replace(" %", "")
+            self.fields[CT_PERCENT_DESC[1]].setText(ct_clean)
+
+        # Принудительно обновляем расчёт
+        self.on_calculate()
+
+
+class HistoryDialog(QDialog):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle(HISTORY_DIALOG_TITLE)
+        self.resize(900, 500)
+        self.history = load_history()
+        self.selected_entry = None
+
+        layout = QVBoxLayout(self)
+
+        # Таблица
+        self.table = QTableWidget()
+        self.table.setColumnCount(6)
+        self.table.setHorizontalHeaderLabels(
+            [
+                "Дата сохранения",
+                "Пациент",
+                BIRTH_DATE,
+                RESEARCH_DATE,
+                "CITI",
+                "Риск",
+            ]
+        )
+        self.table.horizontalHeader().setSectionResizeMode(
+            QHeaderView.ResizeToContents
+        )
+        self.table.horizontalHeader().setStretchLastSection(True)
+        self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self.table.setEditTriggers(QTableWidget.NoEditTriggers)
+        layout.addWidget(self.table)
+
+        # Кнопки
+        btn_layout = QHBoxLayout()
+        self.open_btn = QPushButton(BUTTON_JOURNAL_OPEN)
+        self.delete_btn = QPushButton(BUTTON_JOURNAL_DELETE)
+        self.export_btn = QPushButton(BUTTON_JOURNAL_EXPORT_CSV)
+        self.close_btn = QPushButton(BUTTON_JOURNAL_CLOSE)
+        self.open_btn.clicked.connect(self.open_selected)
+        self.delete_btn.clicked.connect(self.delete_selected)
+        self.export_btn.clicked.connect(self.export_history)
+        self.close_btn.clicked.connect(self.accept)
+        btn_layout.addWidget(self.open_btn)
+        btn_layout.addWidget(self.delete_btn)
+        btn_layout.addWidget(self.export_btn)
+        btn_layout.addWidget(self.close_btn)
+        layout.addLayout(btn_layout)
+
+        self.populate_table()
+        self.open_btn.setEnabled(False)
+        self.delete_btn.setEnabled(False)
+        self.table.itemSelectionChanged.connect(self.on_selection_changed)
+
+    def populate_table(self):
+        """
+        Заполняет таблицу данными
+        из истории — с обновлёнными требованиями.
+        """
+        self.table.setRowCount(len(self.history))
+        for row, entry in enumerate(self.history):
+            # Дата сохранения
+            timestamp = datetime.fromisoformat(entry["timestamp"])
+            save_date_str = timestamp.strftime("%d.%m.%Y %H:%M")
+
+            # ФИО пациента
+            raw = entry["raw_data"]
+            surname = raw.get(SURNAME_DESC[1], "").strip()
+            name = raw.get(NAME_DESC[1], "").strip()
+            patronymic = raw.get(PATRONYMIC_DESC[1], "").strip()
+            if surname or name or patronymic:
+                full_name_parts = [
+                    part.capitalize()
+                    for part in [surname, name, patronymic]
+                    if part
+                ]
+                patient_display = " ".join(full_name_parts)
+            else:
+                patient_display = UNKNOWN_STATUS
+
+            # Даты
+            dob = raw.get("dob", UNKNOWN_STATUS)
+            study_date = raw.get("study_date", UNKNOWN_STATUS)
+
+            # CITI и риск
+            citi_val = f"{raw.get('citi', 0):,.0f}"
+            risk = raw.get("risk", "")
+
+            # Заполнение таблицы
+            self.table.setItem(row, 0, QTableWidgetItem(save_date_str))
+            self.table.setItem(row, 1, QTableWidgetItem(patient_display))
+            self.table.setItem(row, 2, QTableWidgetItem(dob))
+            self.table.setItem(row, 3, QTableWidgetItem(study_date))
+            self.table.setItem(row, 4, QTableWidgetItem(citi_val))
+            self.table.setItem(row, 5, QTableWidgetItem(risk))
+
+    def on_selection_changed(self):
+        """Обновляет состояние кнопок при выборе строки."""
+        enabled = bool(self.table.selectedItems())
+        self.open_btn.setEnabled(enabled)
+        self.delete_btn.setEnabled(enabled)
+
+    def get_selected_index(self) -> int:
+        """Возвращает индекс выбранной строки."""
+        selected = self.table.selectedItems()
+        return selected[0].row() if selected else -1
+
+    def open_selected(self):
+        """Загружает выбранную запись в основную форму."""
+        index = self.get_selected_index()
+        if index >= 0:
+            self.selected_entry = self.history[index]
+            self.accept()
+
+    def delete_selected(self):
+        """Удаляет выбранную запись из истории."""
+        index = self.get_selected_index()
+        if index >= 0:
+            reply = QMessageBox.question(
+                self,
+                "Подтверждение",
+                "Удалить выбранную запись из журнала?",
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.No,
+            )
+            if reply == QMessageBox.Yes:
+                del self.history[index]
+                save_history(self.history)
+                self.populate_table()
+                self.open_btn.setEnabled(False)
+                self.delete_btn.setEnabled(False)
+
+    def export_history(self):
+        """Экспортирует историю в CSV-файл с обновлёнными полями."""
+        if not self.history:
+            QMessageBox.information(self, "Экспорт", NO_HISTORY_MESSAGE)
+            return
+
+        path, _ = QFileDialog.getSaveFileName(
+            self,
+            "Сохранить историю в CSV",
+            "",
+            "CSV Files (*.csv)",
+        )
+        if not path:
+            return
+        if not path.lower().endswith(".csv"):
+            path += ".csv"
+
+        try:
+            with open(
+                path, "w", encoding="utf-8-sig"
+            ) as f:  # utf-8-sig для Excel
+                f.write(
+                    f"Дата сохранения;ФИО;{BIRTH_DATE};{RESEARCH_DATE};"
+                    f"{GENDER};{D_DIMER_DESC[0]};{INTERLEUKINS_DESC[0]};"
+                    f"{LYMPHOCYTES_DESC[0]};{CT_PERCENT_DESC[0]};CITI;Риск\n"
+                )
+                for entry in self.history:
+                    d = entry["raw_data"]
+                    timestamp = datetime.fromisoformat(
+                        entry["timestamp"]
+                    ).strftime("%d.%m.%Y %H:%M")
+
+                    # ФИО
+                    surname = d.get(SURNAME_DESC[1], "").strip()
+                    name = d.get(NAME_DESC[1], "").strip()
+                    patronymic = d.get(PATRONYMIC_DESC[1], "").strip()
+                    if surname or name or patronymic:
+                        full_name_parts = [
+                            part.capitalize()
+                            for part in [surname, name, patronymic]
+                            if part
+                        ]
+                        full_name = " ".join(full_name_parts)
+                    else:
+                        full_name = UNKNOWN_STATUS
+
+                    f.write(
+                        f"{timestamp};"
+                        f"{full_name};"
+                        f"{d.get('dob', UNKNOWN_STATUS)};"
+                        f"{d.get('study_date', UNKNOWN_STATUS)};"
+                        f"{d.get('gender', UNKNOWN_STATUS)};"
+                        f"{d.get(D_DIMER_DESC[1], 0)};"
+                        f"{d.get(INTERLEUKINS_DESC[1], 0)};"
+                        f"{d.get(LYMPHOCYTES_DESC[1], 0)};"
+                        f"{d.get(CT_PERCENT_DESC[1], UNKNOWN_STATUS)};"
+                        f"{d.get('citi', 0):.0f};"
+                        f"{d.get('risk', '')}\n"
+                    )
+            QMessageBox.information(
+                self, "Успешно", f"История экспортирована:\n{path}"
+            )
+        except (OSError, PermissionError) as e:
+            logging.error(ERROR_EXPORT_HISTORY_IO.format(e))
+            QMessageBox.critical(
+                self, "Ошибка", ERROR_EXPORT_HISTORY_IO.format(e)
+            )
+        except Exception as e:
+            # Непредвиденная ошибка
+            logging.error(ERROR_EXPORT_HISTORY_GENERIC.format(e))
+            QMessageBox.critical(
+                self, "Ошибка", ERROR_EXPORT_HISTORY_GENERIC.format(e)
+            )
+
 
 def main():
     load_dotenv()
     debug_mode = os.getenv("DEBUG", "False").lower() == "true"
     if debug_mode:
-        print("Программа запущена в режиме отладки")
+        print(DEBUG_MODE_ON)
 
     setup_logger(debug_mode)
     app = QApplication(sys.argv)
     app.setFont(QFont(FONT_FAMILY, FONT_SIZE_BASE))
-    window = TINICalculatorApp()
+    window = CITICalculatorApp()
     window.show()
     sys.exit(app.exec())
 
